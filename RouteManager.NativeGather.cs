@@ -744,12 +744,22 @@ public sealed partial class RouteManager
         _navRetryAt           = DateTime.MinValue;
         _gatherCap            = DateTime.MinValue;
 
-        if (_config.UseAuger && GameUiHelper.AugerGaugeValue() >= DiademData.AugerGaugeReady)
+        if (_config.UseAuger)
         {
-            _augerAttempts = 0;
-            _augerNextTry  = DateTime.MinValue;
-            SetState(BotState.AugerPhase);
-            return;
+            var gauge = GameUiHelper.AugerGaugeValue();
+            if (gauge >= DiademData.AugerGaugeReady)
+            {
+                _augerAttempts = 0;
+                _augerNextTry  = DateTime.MinValue;
+                SetState(BotState.AugerPhase);
+                return;
+            }
+            // Skipping used to be silent, which is why the auger sitting idle on a
+            // whole route went unexplained. -1 means the gauge couldn't be read at
+            // all (HUD element hidden?), which is a different problem to a low charge.
+            Plugin.Log.Information($"[DiademGatherer] {CurrentLabel}: no auger — "
+                + (gauge < 0 ? "gauge unreadable (is the Diadem aether gauge on screen?)"
+                             : $"gauge {gauge} below {DiademData.AugerGaugeReady}"));
         }
 
         FinishWaypoint();

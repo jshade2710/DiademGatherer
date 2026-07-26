@@ -968,7 +968,18 @@ public sealed partial class RouteManager : IDisposable
         }
 
         var target = FindAugerTarget();
-        if (target == null) { EndAugerPhase(); return; } // nothing on the list nearby
+        if (target == null)
+        {
+            // Also previously silent. Report the nearest listed monster at ANY
+            // range so it's obvious whether the scan radius is the limit or the
+            // route simply has none of them nearby.
+            var (near, dist) = NearestPriorityMonster();
+            Plugin.Log.Information($"[DiademGatherer] {CurrentLabel}: auger charged but no target "
+                + $"within {DiademData.AugerScanRange}y — nearest listed is "
+                + (near == null ? "none in the zone" : $"{near} at {dist:F0}y"));
+            EndAugerPhase();
+            return;
+        }
 
         var gauge = GameUiHelper.AugerGaugeValue();
         if (SkillCaster.TryUseActionOnTarget(DiademData.AugerActionId, target.GameObjectId))
@@ -990,6 +1001,26 @@ public sealed partial class RouteManager : IDisposable
     // The auger phase only ever runs at a node now, so leaving it always
     // continues the route.
     private void EndAugerPhase() => FinishWaypoint();
+
+    // Nearest monster on the priority list at any distance — diagnostics only,
+    // so an idle auger can be explained rather than guessed at.
+    private (string? Name, float Dist) NearestPriorityMonster()
+    {
+        var player = Plugin.ObjectTable.LocalPlayer;
+        if (player == null) return (null, 0f);
+
+        string? best = null; var bestDist = float.MaxValue;
+        foreach (var obj in Plugin.ObjectTable)
+        {
+            if (obj is not Dalamud.Game.ClientState.Objects.Types.IBattleChara chara) continue;
+            if (chara.CurrentHp == 0 || !chara.IsTargetable) continue;
+            var name = chara.Name.TextValue;
+            if (!DiademData.AugerPriority.Any(p => name.Contains(p, StringComparison.OrdinalIgnoreCase))) continue;
+            var d = Vector3.Distance(player.Position, chara.Position);
+            if (d < bestDist) { best = name; bestDist = d; }
+        }
+        return (best, best == null ? 0f : bestDist);
+    }
 
     // Highest-priority live monster within auger range; distance breaks ties
     // within the same priority tier.
