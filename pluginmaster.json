@@ -1,0 +1,22 @@
+[
+  {
+    "Author": "Joshua Shade",
+    "Name": "Diadem Gatherer",
+    "InternalName": "DiademGatherer",
+    "AssemblyVersion": "0.1.0.0",
+    "Description": "Gathers a fixed Diadem route natively — finds the real node at each waypoint, flies in on a combined fly/land/walk path, and works the item slots itself. Respects the sequential node chains (a node is always exhausted before moving on, since the next one only spawns then), spends Revisit GP procs on skills, and learns which spots reliably open each node. Handles the whole round trip: leave duty, certify loot at Flotpassant, spend scrips at Enie, repair with dark matter, and re-enter via Aurvael. Includes an Artisan-driven crafting loop for the Skybuilders' collectables. Requires vnavmesh.",
+    "Punchline": "Runs the Ishgardian Restoration loop in The Diadem, start to finish.",
+    "ApplicableVersion": "any",
+    "RepoUrl": "https://github.com/jshade2710/DiademGatherer",
+    "Tags": [ "diadem", "gathering", "mining", "botany", "firmament", "automation" ],
+    "DalamudApiLevel": 13,
+    "LoadRequiredState": 0,
+    "CanUnloadAsync": false,
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "DownloadCount": 0,
+    "DownloadLinkInstall": "https://github.com/jshade2710/DiademGatherer/releases/latest/download/latest.zip",
+    "DownloadLinkUpdate":  "https://github.com/jshade2710/DiademGatherer/releases/latest/download/latest.zip",
+    "DownloadLinkTesting": "https://github.com/jshade2710/DiademGatherer/releases/latest/download/latest.zip"
+  }
+]
