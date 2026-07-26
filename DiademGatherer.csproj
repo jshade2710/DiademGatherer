@@ -1,0 +1,23 @@
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+
+  <PropertyGroup>
+    <Authors>Joshua Shade</Authors>
+    <Company></Company>
+    <Version>0.1.0.0</Version>
+    <Description>Automated Diadem gathering routes for GatherBuddy Reborn + vnavmesh.</Description>
+    <AssemblyName>DiademGatherer</AssemblyName>
+    <RootNamespace>DiademGatherer</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!--
+    Dalamud.NET.Sdk automatically references Dalamud, Dalamud.Bindings.ImGui,
+    Lumina, FFXIVClientStructs, Newtonsoft.Json, sets the correct target
+    framework (net10.0-windows for Dalamud 15), enables nullable/unsafe, and
+    runs DalamudPackager to emit the plugin manifest. No manual <Reference>
+    items or DalamudLibPath needed.
+  -->
+
+</Project>
