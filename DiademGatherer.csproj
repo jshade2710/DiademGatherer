@@ -1,7 +1,7 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
 
   <PropertyGroup>
-    <Authors>Joshua Shade</Authors>
+    <Authors>Iam Batman</Authors>
     <Company></Company>
     <Version>0.1.0.0</Version>
     <Description>Automated Diadem gathering routes for GatherBuddy Reborn + vnavmesh.</Description>
