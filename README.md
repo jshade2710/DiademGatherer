@@ -16,7 +16,7 @@ the instance — then does it again.
 - **Learns where to stand.** Whenever a node opens, the spot you were standing on
   is remembered and reused (several per node, picked at random) so approaches get
   more reliable over time and don't repeat the same pixel every lap.
-- **Spends GP procs.** A Revisit proc refunds ~997 GP and adds integrity; the
+- **Spends GP procs.** A Revisit proc refunds GP and adds integrity; the
   buff plan re-arms so that bonus is gathered under buffs.
 - **Handles the round trip.** Leave duty → certify at Flotpassant → spend scrips
   at Enie → repair with dark matter → back in via Aurvael.
@@ -30,7 +30,7 @@ Fortune) for the collectables side.
 
 - [vnavmesh](https://github.com/awgil/ffxiv_navmesh) — required, all movement
   goes through it
-- Artisan — only if you use the crafting tab
+- [Artisan](https://github.com/PunishXIV/Artisan) — only if you use the crafting tab
 
 ## Usage
 
