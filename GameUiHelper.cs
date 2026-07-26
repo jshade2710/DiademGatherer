@@ -175,12 +175,28 @@ public static unsafe class GameUiHelper
         var addon = GetAddon("HWDAetherGauge");
         if (addon == null || !addon->IsVisible) return -1;
 
-        // Raw struct-offset read (patch-fragile). The gauge is 0–500 by design;
-        // clamp so a post-patch garbage read degrades to "not ready" instead of
-        // triggering phantom auger phases.
+        // Raw struct-offset read (patch-fragile), so it's sanity-bounded — but
+        // the bound has to be generous. It was 1000, and the gauge climbs well
+        // past that: once it did, every read was rejected as garbage, the auger
+        // phase stopped firing, and the gauge simply sat full. The point of the
+        // check is only to reject a wrong offset (pointers read as huge or
+        // negative), not to second-guess a plausible charge.
         var value = *(int*)((nint)addon + AetherGaugeOffset);
-        return value is >= 0 and <= 1000 ? value : -1;
+        if (value >= 0 && value <= GaugeSanityMax) return value;
+
+        // Out of range means we're probably reading the wrong thing — say so
+        // once in a while rather than silently never firing again.
+        if (DateTime.UtcNow >= _gaugeWarnAt)
+        {
+            _gaugeWarnAt = DateTime.UtcNow + TimeSpan.FromMinutes(5);
+            Plugin.Log.Warning($"[DiademGatherer] Auger gauge read {value} is outside 0..{GaugeSanityMax} — "
+                             + "treating it as unreadable, so the auger won't fire.");
+        }
+        return -1;
     }
+
+    private const int GaugeSanityMax = 100_000;
+    private static DateTime _gaugeWarnAt = DateTime.MinValue;
 
     // Probe output goes to BOTH the Dalamud log and a dedicated file, because
     // dalamud.log stops persisting once it hits its 100 MB cap mid-session.
