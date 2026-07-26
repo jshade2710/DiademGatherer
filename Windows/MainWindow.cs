@@ -422,6 +422,19 @@ public sealed class MainWindow : Window
                         + "It holds this plugin's recent log lines and your settings — no account details.");
         ImGui.Spacing();
 
+        // The most useful lines are logged at Debug, and Dalamud's log level is a
+        // global setting — so warn before someone sends a report missing the very
+        // detail that would explain their problem.
+        if (!DiagnosticsReport.DebugCaptured)
+        {
+            var lvl = DiagnosticsReport.LogLevelName(DiagnosticsReport.DalamudLogLevel());
+            ImGui.TextColored(Amber, $"Dalamud's log level is {lvl}.");
+            ImGui.TextWrapped("Reports will be missing the approach and gathering detail. "
+                            + "For a useful report set it to Debug (Dalamud Settings → Log Level), "
+                            + "reproduce the problem, then save.");
+            ImGui.Spacing();
+        }
+
         if (AccentButton("Save Log Report##savelog", ActionBtn, new Vector2(190, 0)))
         {
             try

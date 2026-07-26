@@ -17,9 +17,41 @@ public static class DiagnosticsReport
 
     public static string FileName => "diadem-report.txt";
 
-    private static string DalamudLogPath
-        => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                        "XIVLauncher", "dalamud.log");
+    private static string XivLauncherDir
+        => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "XIVLauncher");
+
+    private static string DalamudLogPath => Path.Combine(XivLauncherDir, "dalamud.log");
+
+    // Dalamud's log level is a global setting, not per-plugin, and it decides
+    // whether our Debug lines reach the log at all. Serilog's LogEventLevel:
+    // 0 Verbose, 1 Debug, 2 Information, 3 Warning, 4 Error, 5 Fatal.
+    // Null when it can't be read.
+    public static int? DalamudLogLevel()
+    {
+        try
+        {
+            var cfg = Path.Combine(XivLauncherDir, "dalamudConfig.json");
+            if (!File.Exists(cfg)) return null;
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(cfg));
+            return doc.RootElement.TryGetProperty("LogLevel", out var v) && v.TryGetInt32(out var i)
+                ? i : null;
+        }
+        catch { return null; }
+    }
+
+    public static string LogLevelName(int? level) => level switch
+    {
+        0 => "Verbose", 1 => "Debug", 2 => "Information",
+        3 => "Warning", 4 => "Error",  5 => "Fatal",
+        _ => "unknown",
+    };
+
+    // True when the log is capturing at least Debug — i.e. a report will contain
+    // the detail needed to diagnose an approach or gathering problem.
+    public static bool DebugCaptured
+    {
+        get { var l = DalamudLogLevel(); return l is null or <= 1; }
+    }
 
     // Writes the report next to the plugin's config and returns its full path.
     // Throws only on genuinely unexpected IO — callers report the message.
@@ -32,6 +64,13 @@ public static class DiagnosticsReport
         sb.AppendLine($"generated : {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
         sb.AppendLine($"plugin    : {typeof(Plugin).Assembly.GetName().Version}");
         sb.AppendLine($"territory : {Plugin.ClientState.TerritoryType}");
+
+        var lvl = DalamudLogLevel();
+        sb.AppendLine($"log level : {LogLevelName(lvl)}"
+                    + (DebugCaptured
+                        ? " (full detail)"
+                        : " — Debug NOT captured, so the approach/gather detail is MISSING."
+                          + " Set Dalamud's log level to Debug or Verbose, reproduce, and re-save."));
         sb.AppendLine($"job       : {Plugin.ObjectTable.LocalPlayer?.ClassJob.RowId.ToString() ?? "—"}");
         sb.AppendLine();
 

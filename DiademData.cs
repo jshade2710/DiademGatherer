@@ -64,7 +64,7 @@ public static class DiademData
 
     // Aetheromatic Auger duty action (id from GBR's DiademAether implementation).
     public const uint  AugerActionId        = 19700;
-    public const float AugerScanRange       = 25f;  // in-place / in-flight firing range
+    public const float AugerScanRange       = 32f;  // in-place / in-flight firing range
     public const float AugerDetourRange     = 160f; // how far off-route a detour monster may be
     public const float DetourApproachRange  = 18f;  // fly to within this of the detour target
     public const int   AugerGaugeReady      = 200;  // fire only at/above this charge
@@ -146,12 +146,11 @@ public static class DiademData
             "P4", "G5", "G6", "P5", "P6", "P7", "G7", "P8",
         },
         BurstNodes:    new[] { "P8", "G8" },
-        // Same auger detour as mining: G3 sits in the Icetrap area (R6's spot),
-        // so after gathering G3 fly to a charged Icetrap if one is up. The
-        // near-node auger phase (any priority mob within range) already runs on
-        // both routes; this adds the off-route Icetrap run botany was missing.
-        DetourNodes:   new[] { "G3" },
-        DetourMonster: "Diadem Icetrap",
+        // No off-route detour on botany: the Icetraps sit far enough off this
+        // path that the round trip costs more than the charge is worth. The
+        // near-node auger phase still fires at anything in range after a gather.
+        DetourNodes:   Array.Empty<string>(),
+        DetourMonster: null,
         // From the GBR "Diadem Botany" list — the only slots we gather.
         WantedItemIds: new uint[] { 32037, 32036, 32035, 32038, 32039 },
         BuiltInNodes:  Nodes(

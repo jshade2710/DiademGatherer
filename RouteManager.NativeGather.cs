@@ -228,7 +228,7 @@ public sealed partial class RouteManager
         var text = message.TextValue;
         if (text.Contains("in flight", StringComparison.OrdinalIgnoreCase))
         {
-            Plugin.Log.Debug($"[DiademGatherer] {CurrentLabel}: '{text}' — forcing a landing.");
+            Plugin.Log.Information($"[DiademGatherer] {CurrentLabel}: '{text}' — forcing a landing.");
             _forceLanding      = true;
             _forceLandSpot     = null;
             _forceLandDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(8);
@@ -262,7 +262,7 @@ public sealed partial class RouteManager
         // normal approach retry rather than grinding here.
         if (DateTime.UtcNow > _forceLandDeadline)
         {
-            Plugin.Log.Debug($"[DiademGatherer] {CurrentLabel}: force-land timed out; resuming approach.");
+            Plugin.Log.Information($"[DiademGatherer] {CurrentLabel}: force-land timed out; resuming approach.");
             _forceLanding = false;
             _navIssued    = false;
             _navTarget    = null;
@@ -288,7 +288,7 @@ public sealed partial class RouteManager
                               MathF.Sin(Random.Shared.NextSingle() * MathF.Tau));
 
             _forceLandSpot = _nav.Reachable(origin + dir * RetreatDistance);
-            Plugin.Log.Debug($"[DiademGatherer] {CurrentLabel}: backing off to {_forceLandSpot} to re-approach.");
+            Plugin.Log.Information($"[DiademGatherer] {CurrentLabel}: backing off to {_forceLandSpot} to re-approach.");
             _nav.MoveCloseTo(_forceLandSpot.Value, fly: true, range: 2f);
             _gatherStep = DateTime.UtcNow + TimeSpan.FromMilliseconds(600);
             return;
@@ -330,13 +330,13 @@ public sealed partial class RouteManager
                 // beforehand puts a visible hitch in the middle of every approach.
                 _nav.MoveAlong(_pathBuilder.Path, fly: true);
                 _groundLegCount = _pathBuilder.GroundLegCount;
-                Plugin.Log.Debug($"[DiademGatherer] {CurrentLabel}: combined path, " +
+                Plugin.Log.Information($"[DiademGatherer] {CurrentLabel}: combined path, " +
                                  $"{_pathBuilder.Path.Count} waypoints ({_groundLegCount} on the ground).");
                 _pathBuilder.Reset();
                 return true;
             }
 
-            Plugin.Log.Debug($"[DiademGatherer] {CurrentLabel}: no combined path — direct move.");
+            Plugin.Log.Information($"[DiademGatherer] {CurrentLabel}: no combined path — direct move.");
             _pathBuilder.Reset();
         }
 
@@ -439,7 +439,7 @@ public sealed partial class RouteManager
         // Heartbeat so a stall is never silent in the log again.
         if (DateTime.UtcNow >= _approachLogAt)
         {
-            Plugin.Log.Debug($"[DiademGatherer] {CurrentLabel} approach: h={hSep:F1} v={vSep:F1} " +
+            Plugin.Log.Information($"[DiademGatherer] {CurrentLabel} approach: h={hSep:F1} v={vSep:F1} " +
                              $"mounted={Plugin.Condition[ConditionFlag.Mounted]} " +
                              $"inFlight={Plugin.Condition[ConditionFlag.InFlight]} navBusy={_nav.IsBusy()}");
             _approachLogAt = DateTime.UtcNow + TimeSpan.FromSeconds(2);
@@ -484,7 +484,7 @@ public sealed partial class RouteManager
                 _navTarget = null;
                 _navIssued = false;
                 _nav.Stop();
-                Plugin.Log.Debug($"[DiademGatherer] {CurrentLabel}: stalled at h={hSep:F1} — " +
+                Plugin.Log.Information($"[DiademGatherer] {CurrentLabel}: stalled at h={hSep:F1} — " +
                                  $"trying approach target #{_navCandidate}.");
                 return;
             }
@@ -565,7 +565,7 @@ public sealed partial class RouteManager
         }
 
         GameUiHelper.OpenNodeInteraction(_nativeNode.Address);
-        Plugin.Log.Debug($"[DiademGatherer] {CurrentLabel}: interacting (h={hSep:F1} v={vSep:F1} " +
+        Plugin.Log.Information($"[DiademGatherer] {CurrentLabel}: interacting (h={hSep:F1} v={vSep:F1} " +
                          $"mounted={Plugin.Condition[ConditionFlag.Mounted]} " +
                          $"inFlight={Plugin.Condition[ConditionFlag.InFlight]})");
         // GBR allows up to 1100 ms for the window to appear (≈600 ms for Mounted
