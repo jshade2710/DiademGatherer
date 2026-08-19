@@ -59,6 +59,10 @@ public sealed class CraftingManager : IDisposable
     // of continuing into shop/next-batch.
     private bool _kupoOnly;
 
+    // Set when a turn-in was declined because kupo vouchers were capped, so the
+    // kupo session returns to Potkin instead of moving on to shopping/crafting.
+    private bool _resumeTurnInAfterKupo;
+
     private readonly ShopRunner _shop;
 
     public int TurnInsTotal     { get; private set; }
@@ -113,6 +117,7 @@ public sealed class CraftingManager : IDisposable
 
         _running           = true;
         TurnInsSinceKupo   = 0;
+        _resumeTurnInAfterKupo = false;
         _artisanKicks      = 0;
         _rekick            = false;
         _turnInInterrupted = false;
@@ -410,6 +415,26 @@ public sealed class CraftingManager : IDisposable
 
         if (DateTime.UtcNow < _turnInStep) return;
 
+        // Vouchers are full: the game offers to complete the hand-in anyway, but
+        // it grants NO stamps, so saying yes throws the collectable away for
+        // nothing. Decline, go spend the vouchers at Lizbeth, then come back and
+        // finish the batch. Previously this prompt was ignored entirely and the
+        // loop just kept driving the hand-in behind it.
+        if (GameUiHelper.TryGetSelectYesnoText(out var capPrompt)
+            && capPrompt.Contains("kupo voucher", StringComparison.OrdinalIgnoreCase)
+            && capPrompt.Contains("will not receive", StringComparison.OrdinalIgnoreCase))
+        {
+            Plugin.ChatGui.Print("[DiademGatherer] Kupo vouchers are full — turn-ins would earn nothing. "
+                               + "Playing kupo first, then finishing the batch.");
+            GameUiHelper.ClickNo();
+            _resumeTurnInAfterKupo = true;
+            if (GameUiHelper.IsVisible("HWDSupply")) GameUiHelper.CloseAddon("HWDSupply");
+            _actionAt   = DateTime.UtcNow + TimeSpan.FromSeconds(1);
+            _turnInStep = DateTime.UtcNow + TimeSpan.FromSeconds(1);
+            SetState(CraftState.GoToLizbeth);
+            return;
+        }
+
         // Step 1: confirm an open Item Request.
         if (GameUiHelper.RequestHandInOpen())
         {
@@ -600,6 +625,17 @@ public sealed class CraftingManager : IDisposable
         if (DateTime.UtcNow < _kupoWrapUntil) return;
 
         if (_kupoOnly) { _kupoOnly = false; Stop(); return; }
+
+        // We only came here because the turn-in was blocked by full vouchers —
+        // vouchers are spent now, so finish handing the batch in.
+        if (_resumeTurnInAfterKupo)
+        {
+            _resumeTurnInAfterKupo = false;
+            Plugin.ChatGui.Print("[DiademGatherer] Vouchers spent — back to Potkin to finish the turn-in.");
+            SetState(CraftState.GoToPotkin);
+            return;
+        }
+
         EnterShopStage();
     }
 
