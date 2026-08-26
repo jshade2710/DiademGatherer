@@ -217,7 +217,12 @@ public sealed class CraftingManager : IDisposable
             var (_, job) = ItemHelper.ResolveRecipe(g.ItemName);
             if (job == 0) continue;
             var score = LastScore(job);
-            if (score >= 0 && score >= _config.MaxAccumulatedScore) continue; // capped
+            if (_config.EnableScoreCap && score >= 0 && score >= _config.MaxAccumulatedScore)
+            {
+                Plugin.Log.Information($"[DiademGatherer] Skipping \"{g.ItemName}\": its class scores "
+                    + $"{score:N0} >= cap {_config.MaxAccumulatedScore:N0}.");
+                continue;
+            }
             return g;
         }
         return null;
@@ -233,7 +238,10 @@ public sealed class CraftingManager : IDisposable
         _goal = NextGoal();
         if (_goal == null)
         {
-            Plugin.ChatGui.Print("[DiademGatherer] All craft goals done, capped, or out of materials — stopping.");
+            Plugin.ChatGui.Print("[DiademGatherer] No craft goal left to run — every goal is disabled, "
+                + "already skipped for missing materials, or over the score cap. Stopping.");
+            Plugin.Log.Warning($"[DiademGatherer] NextGoal found nothing. goals={_config.CraftGoals.Count} "
+                + $"skipped={_skippedGoals.Count} scoreCap={(_config.EnableScoreCap ? _config.MaxAccumulatedScore.ToString("N0") : "off")}");
             Stop();
             return;
         }
@@ -488,7 +496,7 @@ public sealed class CraftingManager : IDisposable
                 + $"(job {_goalJob}) reads {score:N0} / cap {_config.MaxAccumulatedScore:N0}"
                 + (_config.EnableScoreCap ? "" : " (cap disabled)"));
 
-            if (score >= 0)
+            if (score >= 0 && _config.EnableScoreCap)
             {
                 _scoreByJob[_goalJob] = score;
                 if (_config.EnableScoreCap && score >= _config.MaxAccumulatedScore)
