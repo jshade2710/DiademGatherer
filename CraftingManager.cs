@@ -474,7 +474,15 @@ public sealed class CraftingManager : IDisposable
         GameUiHelper.SupplySelectClass(classIndex);
 
         // Read this class's accumulated score; stop turning in once it caps.
+        // This is the ONE path that closes the window without handing anything
+        // in, so log what it read — a misread here looks exactly like "the bot
+        // won't turn my batch in", and the value comes from a raw AtkValue index
+        // that a game patch can shift.
         var score = GameUiHelper.SupplyAccumulatedScore();
+        Plugin.Log.Information($"[DiademGatherer] Turn-in score check: class tab {classIndex} "
+            + $"(job {_goalJob}) reads {score:N0} / cap {_config.MaxAccumulatedScore:N0}"
+            + (score < 0 ? " — unreadable, ignoring the cap" : ""));
+
         if (score >= 0)
         {
             _scoreByJob[_goalJob] = score;
@@ -483,6 +491,8 @@ public sealed class CraftingManager : IDisposable
                 Plugin.ChatGui.Print(
                     $"[DiademGatherer] {_goal.ItemName}'s class hit the {_config.MaxAccumulatedScore:N0} " +
                     "score cap — moving on.");
+                Plugin.Log.Warning($"[DiademGatherer] Skipping turn-in: score {score:N0} >= cap. If your class "
+                    + "is NOT actually capped, the score is being misread and the turn-in is being skipped wrongly.");
                 EnterKupoStage(); // incremental counting already tallied the hand-ins
                 return;
             }
