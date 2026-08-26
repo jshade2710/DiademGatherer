@@ -286,7 +286,14 @@ public sealed class CraftingManager : IDisposable
         if (_artisan.IsBusy() || DateTime.UtcNow < _artisanGraceUntil) return;
 
         // Artisan idle: batch done, or it stopped early (out of materials).
+        // Everything here turns on `have`, and a -1 (name didn't resolve) looks
+        // exactly like "crafted nothing" — which would silently re-craft forever
+        // instead of turning in. Log what we actually measured.
         var have = ItemHelper.CountInInventory(_goal!.ItemName);
+        Plugin.Log.Information($"[DiademGatherer] Batch check \"{_goal.ItemName}\": "
+            + $"have={have} (itemId={ItemHelper.ResolveItemId(_goal.ItemName)}) batch={_goal.Batch} "
+            + $"→ {(have < 0 ? "UNRESOLVED — cannot count" : have >= _goal.Batch ? "turn in" : have > 0 ? "partial turn in" : "nothing crafted")}");
+
         if (have >= _goal.Batch)
         {
             SetState(CraftState.GoToPotkin);
@@ -298,6 +305,15 @@ public sealed class CraftingManager : IDisposable
             // Partial batch (materials ran out?) — turn in what we have.
             Plugin.ChatGui.Print($"[DiademGatherer] Artisan stopped at {have}/{_goal.Batch} — turning in the partial batch.");
             SetState(CraftState.GoToPotkin);
+            return;
+        }
+
+        if (have < 0)
+        {
+            Plugin.ChatGui.PrintError(
+                $"[DiademGatherer] Can't count \"{_goal.ItemName}\" in your bags — the item name didn't "
+                + "resolve, so the batch can never look complete. Re-pick the collectable in the Crafting tab. Stopping.");
+            Stop();
             return;
         }
 
