@@ -107,6 +107,14 @@ public class Configuration : IPluginConfiguration
     // this (the per-class Firmament cap is 500,000).
     public int MaxAccumulatedScore { get; set; } = 500_000;
 
+    // Whether the score cap applies at all. A class can finish ABOVE the cap
+    // (scores aren't clamped to it), and when that happens a cap you can't raise
+    // or switch off silently blocks every turn-in for that class.
+    // OFF by default: the score is read from a raw AtkValue index, and a bad
+    // read blocks every turn-in for that class. Turning in past a cap wastes a
+    // little; never turning in at all stops the loop dead.
+    public bool EnableScoreCap { get; set; } = false;
+
     // Automatically leave and re-enter the Diadem (via Aurvael) after
     // ReinstanceMinutes, then restart the route from the top.
     public bool AutoReinstance { get; set; } = true;

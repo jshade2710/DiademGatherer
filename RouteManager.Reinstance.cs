@@ -141,7 +141,7 @@ public sealed partial class RouteManager
     private bool JobCapped(uint job)
     {
         var s = GatherScore(job);
-        return s >= 0 && s >= _config.MaxAccumulatedScore;
+        return _config.EnableScoreCap && s >= 0 && s >= _config.MaxAccumulatedScore;
     }
 
     // Skybuilders' scrips cap at 10k and a single inspection can pay ~1.8k, so

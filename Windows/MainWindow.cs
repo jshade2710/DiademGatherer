@@ -359,8 +359,14 @@ public sealed class MainWindow : Window
         if (ImGui.IsItemDeactivatedAfterEdit()) Cfg.Save();
         if (ImGui.IsItemHovered()) ImGui.SetTooltip("Stop playing kupo cards once this many vouchers remain (0 = spend all).");
 
+        Toggle("Stop at a class score cap", () => Cfg.EnableScoreCap, v => Cfg.EnableScoreCap = v,
+            "Skip turn-ins for a class once its accumulated score reaches the cap below. "
+            + "Turn this off to keep handing in regardless.");
+
+        if (!Cfg.EnableScoreCap) return;
+
         int max = Cfg.MaxAccumulatedScore;
-        if (ImGui.SliderInt("Stop at class score##maxscore", ref max, 100_000, 500_000)) Cfg.MaxAccumulatedScore = max;
+        if (ImGui.SliderInt("Stop at class score##maxscore", ref max, 100_000, 1_000_000)) Cfg.MaxAccumulatedScore = max;
         if (ImGui.IsItemDeactivatedAfterEdit()) Cfg.Save();
         if (ImGui.IsItemHovered()) ImGui.SetTooltip("Retire a class once its accumulated score reaches this (cap 500,000).");
 

@@ -473,36 +473,35 @@ public sealed class CraftingManager : IDisposable
         var classIndex = (int)_goalJob - 8;
         GameUiHelper.SupplySelectClass(classIndex);
 
-        // Read this class's accumulated score; stop turning in once it caps.
-        // This is the ONE path that closes the window without handing anything
-        // in, so log what it read — a misread here looks exactly like "the bot
-        // won't turn my batch in", and the value comes from a raw AtkValue index
-        // that a game patch can shift.
-        var score = GameUiHelper.SupplyAccumulatedScore();
-        Plugin.Log.Information($"[DiademGatherer] Turn-in score check: class tab {classIndex} "
-            + $"(job {_goalJob}) reads {score:N0} / cap {_config.MaxAccumulatedScore:N0}"
-            + (score < 0 ? " — unreadable, ignoring the cap" : ""));
-
-        if (score >= 0)
-        {
-            _scoreByJob[_goalJob] = score;
-            if (score >= _config.MaxAccumulatedScore)
-            {
-                Plugin.ChatGui.Print(
-                    $"[DiademGatherer] {_goal.ItemName}'s class hit the {_config.MaxAccumulatedScore:N0} " +
-                    "score cap — moving on.");
-                Plugin.Log.Warning($"[DiademGatherer] Skipping turn-in: score {score:N0} >= cap. If your class "
-                    + "is NOT actually capped, the score is being misread and the turn-in is being skipped wrongly.");
-                EnterKupoStage(); // incremental counting already tallied the hand-ins
-                return;
-            }
-        }
-
         // Only hand in when row 0 is actually our collectable (post-tab-switch).
         var shortName = _goal.ItemName.Replace("Grade 4 Artisanal Skybuilders' ", "")
                                       .Replace("Grade 4 Skybuilders' ", "");
         if (GameUiHelper.SupplyRow0NameContains(shortName))
         {
+            // Only now is the window definitely showing OUR class, so this is the
+            // first point the score can be trusted. Reading it right after firing
+            // the tab-switch callback returned whatever tab was showing before —
+            // which read 511,662 for a class actually sitting at 450, and skipped
+            // every turn-in as "capped".
+            var score = GameUiHelper.SupplyAccumulatedScore();
+            Plugin.Log.Information($"[DiademGatherer] Turn-in score check: class tab {classIndex} "
+                + $"(job {_goalJob}) reads {score:N0} / cap {_config.MaxAccumulatedScore:N0}"
+                + (_config.EnableScoreCap ? "" : " (cap disabled)"));
+
+            if (score >= 0)
+            {
+                _scoreByJob[_goalJob] = score;
+                if (_config.EnableScoreCap && score >= _config.MaxAccumulatedScore)
+                {
+                    Plugin.ChatGui.Print(
+                        $"[DiademGatherer] {_goal.ItemName}'s class is at {score:N0}, at or past the " +
+                        $"{_config.MaxAccumulatedScore:N0} cap — skipping its turn-ins. Switch off " +
+                        "\"Stop at a class score cap\" in Settings if that looks wrong.");
+                    EnterKupoStage();
+                    return;
+                }
+            }
+
             GameUiHelper.SupplyHandIn(0);
             _turnInStep = DateTime.UtcNow + TimeSpan.FromSeconds(1.0);
         }
