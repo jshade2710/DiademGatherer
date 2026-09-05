@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using Dalamud.Configuration;
 using Dalamud.Plugin;
 
@@ -7,7 +7,7 @@ namespace DiademGatherer;
 [Serializable]
 public class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 2;
+    public int Version { get; set; } = 3;
 
     // Category currently selected in the UI (filters which routes are shown).
     public GatheringMode Mode { get; set; } = GatheringMode.Mining;
@@ -109,11 +109,10 @@ public class Configuration : IPluginConfiguration
 
     // Whether the score cap applies at all. A class can finish ABOVE the cap
     // (scores aren't clamped to it), and when that happens a cap you can't raise
-    // or switch off silently blocks every turn-in for that class.
-    // OFF by default: the score is read from a raw AtkValue index, and a bad
-    // read blocks every turn-in for that class. Turning in past a cap wastes a
-    // little; never turning in at all stops the loop dead.
-    public bool EnableScoreCap { get; set; } = false;
+    // or switch off silently blocks every turn-in for that class — hence the
+    // toggle. The score itself is now read off the window's own "Accumulated
+    // Score" text, which follows the class tab, so it can be trusted.
+    public bool EnableScoreCap { get; set; } = true;
 
     // Automatically leave and re-enter the Diadem (via Aurvael) after
     // ReinstanceMinutes, then restart the route from the top.

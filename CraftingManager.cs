@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using Dalamud.Plugin.Services;
 using DiademGatherer.IPC;
 
@@ -484,19 +484,16 @@ public sealed class CraftingManager : IDisposable
         // Only hand in when row 0 is actually our collectable (post-tab-switch).
         var shortName = _goal.ItemName.Replace("Grade 4 Artisanal Skybuilders' ", "")
                                       .Replace("Grade 4 Skybuilders' ", "");
-        if (GameUiHelper.SupplyRow0NameContains(shortName))
+        // The window must actually be on our tab before anything is read off it —
+        // the tab-switch callback doesn't take effect in the tick that fires it.
+        if (GameUiHelper.SupplyActiveTab() == classIndex && GameUiHelper.SupplyRow0NameContains(shortName))
         {
-            // Only now is the window definitely showing OUR class, so this is the
-            // first point the score can be trusted. Reading it right after firing
-            // the tab-switch callback returned whatever tab was showing before —
-            // which read 511,662 for a class actually sitting at 450, and skipped
-            // every turn-in as "capped".
             var score = GameUiHelper.SupplyAccumulatedScore();
             Plugin.Log.Information($"[DiademGatherer] Turn-in score check: class tab {classIndex} "
                 + $"(job {_goalJob}) reads {score:N0} / cap {_config.MaxAccumulatedScore:N0}"
                 + (_config.EnableScoreCap ? "" : " (cap disabled)"));
 
-            if (score >= 0 && _config.EnableScoreCap)
+            if (score >= 0)
             {
                 _scoreByJob[_goalJob] = score;
                 if (_config.EnableScoreCap && score >= _config.MaxAccumulatedScore)

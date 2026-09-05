@@ -1,4 +1,4 @@
-using Dalamud.Game.Command;
+﻿using Dalamud.Game.Command;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
@@ -36,7 +36,20 @@ public sealed class Plugin : IDalamudPlugin
     public Plugin()
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+
+        // v3: the class score is read off the window's own text now instead of a
+        // guessed AtkValue index, so the cap is trustworthy. Existing configs had
+        // it forced off while that read was wrong — turn it back on for them.
+        var migrated = Configuration.Version < 3;
+        if (migrated)
+        {
+            Configuration.Version = 3;
+            Configuration.EnableScoreCap = true;
+        }
         Configuration.Initialize(PluginInterface);
+        // Persist immediately, or the migration re-runs every load and would keep
+        // switching the cap back on after someone deliberately switched it off.
+        if (migrated) Configuration.Save();
 
         _navmesh = new NavmeshIPC(PluginInterface);
         _artisan = new ArtisanIPC(PluginInterface);

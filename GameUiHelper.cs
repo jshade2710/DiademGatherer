@@ -311,7 +311,6 @@ public static unsafe class GameUiHelper
     private const int SupplyRowBase   = 91;
     private const int SupplyCountOff  = 18; // count-in-bag within a row
 
-    private const int SupplyScoreIdx = 24; // accumulated score of the selected class tab
 
     public static void SupplySelectClass(int classIndex)
         => FireCallback("HWDSupply", true, 0, classIndex);
@@ -334,13 +333,85 @@ public static unsafe class GameUiHelper
         catch { return -1; }
     }
 
+    // Which class tab HWDSupply is currently showing (0..7 = CRP..CUL); -1 if the
+    // window is closed. AtkValues[62] tracks the tab, verified live: it read 0 on
+    // Carpenter and 1 on Blacksmith. Names for those tabs live at [35..42].
+    private const int SupplyTabIdx = 62;
+
+    public static int SupplyActiveTab()
+    {
+        var addon = GetAddon("HWDSupply");
+        if (addon == null || !addon->IsVisible || addon->AtkValuesCount <= SupplyTabIdx) return -1;
+        try
+        {
+            var v = (int)addon->AtkValues[SupplyTabIdx].UInt;
+            return v >= 0 && v <= 7 ? v : -1;
+        }
+        catch { return -1; }
+    }
+
     // Accumulated score of the class tab currently shown; -1 if unreadable.
+    //
+    // There is no AtkValue that follows the tab. A dump of the live window on two
+    // classes showed [24] at 511,662 on a Carpenter sitting at 269,829, and [17]
+    // holding 269,829 on BOTH tabs — [17] is the score of the class you're logged
+    // in as, not the one you're looking at. Only the drawn text tracks the tab.
+    //
+    // So read the text, anchored on its own label rather than a position: find the
+    // node that says "Accumulated Score" and take the number next to it. A raw
+    // index is a guess that breaks silently; a label moves with its value.
+    private const string SupplyScoreLabel = "Accumulated Score";
+
     public static int SupplyAccumulatedScore()
     {
         var addon = GetAddon("HWDSupply");
-        if (addon == null || !addon->IsVisible || addon->AtkValuesCount <= SupplyScoreIdx) return -1;
-        try { return (int)addon->AtkValues[SupplyScoreIdx].UInt; }
+        if (addon == null || !addon->IsVisible) return -1;
+
+        var texts = new List<string>();
+        try { CollectTextNodes(&addon->UldManager, texts, 0); }
         catch { return -1; }
+
+        var at = texts.FindIndex(t => t.Equals(SupplyScoreLabel, StringComparison.OrdinalIgnoreCase));
+        if (at < 0) return -1;
+
+        // The value is drawn immediately before its label; check after it too, so a
+        // layout that ever flips the pair still reads rather than silently failing.
+        if (at > 0 && TryParseScore(texts[at - 1], out var before)) return before;
+        if (at + 1 < texts.Count && TryParseScore(texts[at + 1], out var after)) return after;
+        return -1;
+    }
+
+    // A score is a bare integer in 0..999,999. Anything else — a range like
+    // "1200-1399", a fraction like "1/10" — is a different field entirely.
+    private static bool TryParseScore(string s, out int value)
+    {
+        value = -1;
+        s = s.Replace(",", "").Trim();
+        if (s.Length == 0 || s.Length > 6) return false;
+        foreach (var c in s) if (c < '0' || c > '9') return false;
+        return int.TryParse(s, out value);
+    }
+
+    private static void CollectTextNodes(AtkUldManager* uld, List<string> into, int depth)
+    {
+        if (uld == null || depth > 4) return;
+        for (var i = 0; i < uld->NodeListCount; i++)
+        {
+            var node = uld->NodeList[i];
+            if (node == null || !node->IsVisible()) continue;
+
+            if (node->Type == NodeType.Text)
+            {
+                string s;
+                try { s = ((AtkTextNode*)node)->NodeText.ToString(); } catch { continue; }
+                if (!string.IsNullOrWhiteSpace(s)) into.Add(s.Trim());
+            }
+            else if ((ushort)node->Type >= 1000)
+            {
+                var comp = ((AtkComponentNode*)node)->Component;
+                if (comp != null) CollectTextNodes(&comp->UldManager, into, depth + 1);
+            }
+        }
     }
 
     public static bool SupplyHandIn(int rowIndex)
