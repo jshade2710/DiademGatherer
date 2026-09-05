@@ -1,4 +1,4 @@
-using Dalamud.Memory;
+﻿using Dalamud.Memory;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
 using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
@@ -620,4 +620,75 @@ public static unsafe class GameUiHelper
         ts->Target = obj;
         ts->InteractWithObject(obj, false);
     }
+
+    // ── Addon probe (Troubleshooting button) ───────────────────────────────────
+    // An addon's numbers live in AtkValues at fixed indices, and those indices are
+    // pure layout — there is no way to derive them, only to read them off a live
+    // window and confirm against what's on screen. This dumps both halves of that
+    // comparison: every AtkValue with its index, and every string the window is
+    // actually drawing, so a value can be matched to the number the user sees.
+    public static string DumpAddon(string name, int maxValues = 96)
+    {
+        var sb = new System.Text.StringBuilder();
+        var addon = GetAddon(name);
+        if (addon == null || !addon->IsVisible)
+        {
+            sb.AppendLine($"{name}: not open.");
+            return sb.ToString();
+        }
+
+        sb.AppendLine($"── {name} ── {addon->AtkValuesCount} AtkValues");
+        var count = Math.Min((int)addon->AtkValuesCount, maxValues);
+        for (var i = 0; i < count; i++)
+        {
+            var v = addon->AtkValues[i];
+            string text;
+            try
+            {
+                text = v.Type switch
+                {
+                    AtkValueType.String or AtkValueType.ManagedString or AtkValueType.ConstString
+                        => v.String.Value == null ? "\"\"" : $"\"{MemoryHelper.ReadStringNullTerminated((nint)v.String.Value)}\"",
+                    AtkValueType.Int     => v.Int.ToString("N0"),
+                    AtkValueType.UInt    => v.UInt.ToString("N0"),
+                    AtkValueType.Bool    => v.Byte != 0 ? "true" : "false",
+                    AtkValueType.Float   => v.Float.ToString("0.##"),
+                    AtkValueType.Undefined => "-",
+                    _ => v.Int.ToString("N0"),
+                };
+            }
+            catch { text = "<unreadable>"; }
+            if (text == "-") continue;   // undefined slots are just noise
+            sb.AppendLine($"  [{i,3}] {v.Type,-13} {text}");
+        }
+
+        sb.AppendLine($"── {name} ── visible text nodes");
+        DumpTextNodes(&addon->UldManager, sb, 0);
+        return sb.ToString();
+    }
+
+    private static void DumpTextNodes(AtkUldManager* uld, System.Text.StringBuilder sb, int depth)
+    {
+        if (uld == null || depth > 4) return;
+        for (var i = 0; i < uld->NodeListCount; i++)
+        {
+            var node = uld->NodeList[i];
+            if (node == null || !node->IsVisible()) continue;
+
+            if (node->Type == NodeType.Text)
+            {
+                var t = (AtkTextNode*)node;
+                string s;
+                try { s = t->NodeText.ToString(); } catch { continue; }
+                if (!string.IsNullOrWhiteSpace(s))
+                    sb.AppendLine($"  node {node->NodeId,4} \"{s.Replace("\n", " / ")}\"");
+            }
+            else if ((ushort)node->Type >= 1000)
+            {
+                var comp = ((AtkComponentNode*)node)->Component;
+                if (comp != null) DumpTextNodes(&comp->UldManager, sb, depth + 1);
+            }
+        }
+    }
+
 }

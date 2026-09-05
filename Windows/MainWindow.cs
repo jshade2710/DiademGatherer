@@ -1,4 +1,4 @@
-using Dalamud.Interface.Windowing;
+﻿using Dalamud.Interface.Windowing;
 using Dalamud.Bindings.ImGui;
 using System.Numerics;
 
@@ -457,6 +457,28 @@ public sealed class MainWindow : Window
         }
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Writes the report next to the plugin config and copies its path to the clipboard.");
+
+        ImGui.Spacing();
+        ImGui.TextWrapped("Score cap not matching what's on screen? Open the window it should read "
+                        + "(Potkin's turn-in, or Flotpassant's appraisal), pick the class tab, then dump it.");
+        if (AccentButton("Dump Score Windows##dumpscore", ActionBtn, new Vector2(190, 0)))
+        {
+            try
+            {
+                var text = GameUiHelper.DumpAddon("HWDSupply")
+                         + "\n" + GameUiHelper.DumpAddon("HWDGathereInspect");
+                var path = Path.Combine(Plugin.PluginInterface.GetPluginConfigDirectory(), "score-dump.txt");
+                File.AppendAllText(path, $"--- {DateTime.Now:HH:mm:ss} ---\n{text}\n");
+                ImGui.SetClipboardText(path);
+                Plugin.ChatGui.Print($"[DiademGatherer] Dumped to {path} (path copied).");
+            }
+            catch (Exception ex)
+            {
+                Plugin.ChatGui.PrintError($"[DiademGatherer] Dump failed: {ex.Message}");
+            }
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Appends every value and on-screen string from the score windows to score-dump.txt.");
 
         if (_lastReportPath == null) return;
 
