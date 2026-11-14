@@ -72,13 +72,18 @@ public static class DiademData
     // Monsters worth an auger charge, in priority order (botany drops
     // preferred, Icetraps first). Matched by name against live ObjectTable
     // spawns. Anything not listed is never shot.
+    //
+    // These are the names the game actually reports, confirmed from a live scan.
+    // "Proto-noctilucale" carries no "Diadem " prefix, so the entry that had one
+    // never matched a single spawn — it showed up 28y away as NOT-LISTED while we
+    // reported having no target at all.
     public static readonly string[] AugerPriority =
     {
         "Diadem Icetrap",
         "Diadem Melia",
         "Diadem Werewood",
         "Diadem Bloated Bulb",
-        "Diadem Proto-noctilucale",
+        "Proto-noctilucale",
     };
 
     private static string[] Labels(char prefix, int count)

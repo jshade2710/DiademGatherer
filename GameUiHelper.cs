@@ -692,6 +692,28 @@ public static unsafe class GameUiHelper
         ts->InteractWithObject(obj, false);
     }
 
+    // Target an object and turn to face it. A targeted action needs both: the
+    // auger's UseAction was returning false at 9y with a 25y range and a usable
+    // GetActionStatus, which leaves facing as the only thing left to be wrong —
+    // after a gather the character is squared up to the node, not the monster.
+    public static void TargetAndFace(nint objectAddress)
+    {
+        var ts = TargetSystem.Instance();
+        if (ts == null || objectAddress == nint.Zero) return;
+
+        var obj = (FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)objectAddress;
+        ts->Target = obj;
+
+        var me = Control.Instance()->LocalPlayer;
+        if (me == null) return;
+
+        // Game headings are radians, zero pointing south (+Z), growing clockwise.
+        var dx = obj->Position.X - me->Position.X;
+        var dz = obj->Position.Z - me->Position.Z;
+        if (dx == 0 && dz == 0) return;
+        me->SetRotation(MathF.Atan2(dx, dz));
+    }
+
     // ── Addon probe (Troubleshooting button) ───────────────────────────────────
     // An addon's numbers live in AtkValues at fixed indices, and those indices are
     // pure layout — there is no way to derive them, only to read them off a live

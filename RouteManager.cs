@@ -688,7 +688,8 @@ public sealed partial class RouteManager : IDisposable
                 }
 
                 var detGauge = GameUiHelper.AugerGaugeValue();
-                if (SkillCaster.TryUseActionOnTarget(DiademData.AugerActionId, _detourTarget!.GameObjectId, out var detWhy))
+                GameUiHelper.TargetAndFace(_detourTarget!.Address);
+                if (SkillCaster.TryUseActionOnTarget(DiademData.AugerActionId, _detourTarget.GameObjectId, out var detWhy))
                 {
                     Plugin.ChatGui.Print($"[DiademGatherer] Auger fired at {_detourTarget.Name.TextValue} (detour, gauge={detGauge}).");
                     EndDetour();
@@ -1004,6 +1005,11 @@ public sealed partial class RouteManager : IDisposable
         var gauge = GameUiHelper.AugerGaugeValue();
         var me    = Plugin.ObjectTable.LocalPlayer;
         var dist2 = me == null ? -1f : AugerDistance(me, target);
+
+        // Target and turn to face before firing — a targeted action needs both,
+        // and after a gather we're squared up to the node, not the monster.
+        GameUiHelper.TargetAndFace(target.Address);
+
         if (SkillCaster.TryUseActionOnTarget(DiademData.AugerActionId, target.GameObjectId, out var why))
         {
             Plugin.Log.Information($"[DiademGatherer] Auger FIRED at {target.Name.TextValue} "
@@ -1045,6 +1051,18 @@ public sealed partial class RouteManager : IDisposable
         return MathF.Max(0f, flat - target.HitboxRadius);
     }
 
+    // Horizontal distance alone isn't reachability: a Zoblyn on an island 204y
+    // below us measured 23y flat and would have counted as in range. The game
+    // won't let a targeted action cross that, so bound the drop too.
+    private const float AugerMaxVertical = 15f;
+
+    private static bool AugerInReach(
+        Dalamud.Game.ClientState.Objects.Types.IGameObject player,
+        Dalamud.Game.ClientState.Objects.Types.IGameObject target,
+        float range)
+        => AugerDistance(player, target) <= range
+        && MathF.Abs(player.Position.Y - target.Position.Y) <= AugerMaxVertical;
+
     // Every nearby battle NPC, nearest first — diagnostics for an idle auger.
     //
     // This used to filter by AugerPriority, which meant it could only ever report
@@ -1060,6 +1078,9 @@ public sealed partial class RouteManager : IDisposable
         var found = new List<(string Text, float Dist)>();
         foreach (var obj in Plugin.ObjectTable)
         {
+            // Players are never auger targets, and listing them (us included,
+            // at 0y) just buried the monsters we were looking for.
+            if (obj.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc) continue;
             if (obj is not Dalamud.Game.ClientState.Objects.Types.IBattleChara chara) continue;
             if (chara.CurrentHp == 0) continue;
 
@@ -1092,9 +1113,11 @@ public sealed partial class RouteManager : IDisposable
 
             foreach (var obj in Plugin.ObjectTable)
             {
+                if (obj.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc) continue;
                 if (obj is not Dalamud.Game.ClientState.Objects.Types.IBattleChara chara) continue;
                 if (chara.CurrentHp == 0 || !chara.IsTargetable) continue;
                 if (!chara.Name.TextValue.Contains(name, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!AugerInReach(player, chara, AugerRange)) continue;
 
                 var dist = AugerDistance(player, chara);
                 if (dist < bestDist)
