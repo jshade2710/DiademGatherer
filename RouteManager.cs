@@ -655,8 +655,11 @@ public sealed partial class RouteManager : IDisposable
         {
             if (!DetourTargetValid()) { _nav.Stop(); EndDetour(); return; } // killed in flight / despawned
 
-            var me       = Plugin.ObjectTable.LocalPlayer?.Position ?? Vector3.Zero;
-            float toMob  = Vector3.Distance(me, _detourTarget!.Position);
+            // Measured the way the game checks range, not centre-to-centre in 3D —
+            // this gate decides whether the auger can reach, so it has to agree
+            // with the auger.
+            var meObj    = Plugin.ObjectTable.LocalPlayer;
+            float toMob  = meObj == null ? float.MaxValue : AugerDistance(meObj, _detourTarget!);
 
             // Fly ALL THE WAY to the approach point before doing anything —
             // dismounting early while hovering high caused a fall that put the
@@ -685,7 +688,7 @@ public sealed partial class RouteManager : IDisposable
                 }
 
                 var detGauge = GameUiHelper.AugerGaugeValue();
-                if (SkillCaster.TryUseActionOnTarget(DiademData.AugerActionId, _detourTarget.GameObjectId, out var detWhy))
+                if (SkillCaster.TryUseActionOnTarget(DiademData.AugerActionId, _detourTarget!.GameObjectId, out var detWhy))
                 {
                     Plugin.ChatGui.Print($"[DiademGatherer] Auger fired at {_detourTarget.Name.TextValue} (detour, gauge={detGauge}).");
                     EndDetour();
@@ -990,16 +993,17 @@ public sealed partial class RouteManager : IDisposable
             // Also previously silent. Report the nearest listed monster at ANY
             // range so it's obvious whether the scan radius is the limit or the
             // route simply has none of them nearby.
-            var (near, dist) = NearestPriorityMonster();
+            var nearby = NearbyMonsters(AugerRange * 2.5f);
             Plugin.Log.Information($"[DiademGatherer] {CurrentLabel}: auger charged but no target "
-                + $"within {AugerRange:0.#}y — nearest listed is "
-                + (near == null ? "none in the zone" : $"{near} at {dist:F0}y"));
+                + $"within {AugerRange:0.#}y. Nearby: "
+                + (nearby.Count == 0 ? "nothing alive in scan range" : string.Join("; ", nearby)));
             EndAugerPhase();
             return;
         }
 
         var gauge = GameUiHelper.AugerGaugeValue();
-        var dist2 = Vector3.Distance(Plugin.ObjectTable.LocalPlayer?.Position ?? Vector3.Zero, target.Position);
+        var me    = Plugin.ObjectTable.LocalPlayer;
+        var dist2 = me == null ? -1f : AugerDistance(me, target);
         if (SkillCaster.TryUseActionOnTarget(DiademData.AugerActionId, target.GameObjectId, out var why))
         {
             Plugin.Log.Information($"[DiademGatherer] Auger FIRED at {target.Name.TextValue} "
@@ -1024,24 +1028,54 @@ public sealed partial class RouteManager : IDisposable
     // continues the route.
     private void EndAugerPhase() => FinishWaypoint();
 
-    // Nearest monster on the priority list at any distance — diagnostics only,
-    // so an idle auger can be explained rather than guessed at.
-    private (string? Name, float Dist) NearestPriorityMonster()
+    // Distance the way the GAME measures action range: horizontally, to the edge
+    // of the target's hitbox.
+    //
+    // Measuring 3D centre-to-centre is what made the auger look out of range on
+    // botany. That route climbs from Y -5 to Y +30 across floating islands, so a
+    // mob 15y away on the ground below reads as 34y once the drop is folded in —
+    // and a fat Icetrap's hitbox hides another 2-3y on top of that.
+    private static float AugerDistance(
+        Dalamud.Game.ClientState.Objects.Types.IGameObject player,
+        Dalamud.Game.ClientState.Objects.Types.IGameObject target)
+    {
+        var dx = player.Position.X - target.Position.X;
+        var dz = player.Position.Z - target.Position.Z;
+        var flat = MathF.Sqrt(dx * dx + dz * dz);
+        return MathF.Max(0f, flat - target.HitboxRadius);
+    }
+
+    // Every nearby battle NPC, nearest first — diagnostics for an idle auger.
+    //
+    // This used to filter by AugerPriority, which meant it could only ever report
+    // the nearest monster we were ALREADY willing to shoot. A mob standing 10y
+    // away under a different name was invisible to it, so "no target within 32y"
+    // read as "nothing is close" when it actually meant "nothing on my list is
+    // close". Report what's there, and let the list be judged against it.
+    private List<string> NearbyMonsters(float within, int limit = 8)
     {
         var player = Plugin.ObjectTable.LocalPlayer;
-        if (player == null) return (null, 0f);
+        if (player == null) return new List<string>();
 
-        string? best = null; var bestDist = float.MaxValue;
+        var found = new List<(string Text, float Dist)>();
         foreach (var obj in Plugin.ObjectTable)
         {
             if (obj is not Dalamud.Game.ClientState.Objects.Types.IBattleChara chara) continue;
-            if (chara.CurrentHp == 0 || !chara.IsTargetable) continue;
-            var name = chara.Name.TextValue;
-            if (!DiademData.AugerPriority.Any(p => name.Contains(p, StringComparison.OrdinalIgnoreCase))) continue;
-            var d = Vector3.Distance(player.Position, chara.Position);
-            if (d < bestDist) { best = name; bestDist = d; }
+            if (chara.CurrentHp == 0) continue;
+
+            var d = AugerDistance(player, chara);
+            if (d > within) continue;
+
+            var listed = DiademData.AugerPriority.Any(
+                p => chara.Name.TextValue.Contains(p, StringComparison.OrdinalIgnoreCase));
+            var dy = MathF.Abs(player.Position.Y - chara.Position.Y);
+            found.Add(($"{chara.Name.TextValue} {d:F0}y (3D {Vector3.Distance(player.Position, chara.Position):F0}y, "
+                     + $"dY {dy:F0}, hitbox {chara.HitboxRadius:0.#})"
+                     + (listed ? "" : " NOT-LISTED")
+                     + (chara.IsTargetable ? "" : " UNTARGETABLE"), d));
         }
-        return (best, best == null ? 0f : bestDist);
+
+        return found.OrderBy(f => f.Dist).Take(limit).Select(f => f.Text).ToList();
     }
 
     // Highest-priority live monster within auger range; distance breaks ties
@@ -1062,7 +1096,7 @@ public sealed partial class RouteManager : IDisposable
                 if (chara.CurrentHp == 0 || !chara.IsTargetable) continue;
                 if (!chara.Name.TextValue.Contains(name, StringComparison.OrdinalIgnoreCase)) continue;
 
-                var dist = Vector3.Distance(player.Position, chara.Position);
+                var dist = AugerDistance(player, chara);
                 if (dist < bestDist)
                 {
                     best     = chara;
