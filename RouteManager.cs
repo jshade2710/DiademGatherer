@@ -198,6 +198,10 @@ public sealed partial class RouteManager : IDisposable
     {
         if (_running) return;
 
+        // Resolve (and log) the auger's reach up front, so a run that never fires
+        // can be explained from the top of the log rather than guessed at.
+        _ = AugerRange;
+
         if (!_nav.IsAvailable)
         {
             Plugin.ChatGui.PrintError("[DiademGatherer] vnavmesh is not available. Cannot start.");
@@ -665,7 +669,7 @@ public sealed partial class RouteManager : IDisposable
                 if (DateTime.UtcNow < _augerNextTry) return;
 
                 // Path ended too far away (unreachable perch etc.) — give up cleanly.
-                if (toMob > DiademData.AugerScanRange + 5f)
+                if (toMob > AugerRange + 5f)
                 {
                     Plugin.Log.Warning($"[DiademGatherer] Detour approach ended {toMob:F0}y from target; resuming route.");
                     EndDetour();
@@ -681,7 +685,7 @@ public sealed partial class RouteManager : IDisposable
                 }
 
                 var detGauge = GameUiHelper.AugerGaugeValue();
-                if (SkillCaster.TryUseActionOnTarget(DiademData.AugerActionId, _detourTarget.GameObjectId))
+                if (SkillCaster.TryUseActionOnTarget(DiademData.AugerActionId, _detourTarget.GameObjectId, out var detWhy))
                 {
                     Plugin.ChatGui.Print($"[DiademGatherer] Auger fired at {_detourTarget.Name.TextValue} (detour, gauge={detGauge}).");
                     EndDetour();
@@ -689,7 +693,8 @@ public sealed partial class RouteManager : IDisposable
                 }
 
                 Plugin.Log.Information(
-                    $"[DiademGatherer] Detour auger refused (gauge={detGauge}, attempt {_augerAttempts + 1}).");
+                    $"[DiademGatherer] Detour auger refused at {toMob:F0}y "
+                    + $"(gauge={detGauge}, attempt {_augerAttempts + 1}): {detWhy}");
                 _augerAttempts++;
                 if (_augerAttempts >= 3)
                 {
@@ -942,6 +947,18 @@ public sealed partial class RouteManager : IDisposable
 
     // ── Auger ──────────────────────────────────────────────────────────────────
 
+    // How far the auger can actually reach. Prefer the game's own Action sheet
+    // over our hardcoded guess: scanning wider than the action reaches only turns
+    // "no target" into "refused", and scanning narrower leaves kills on the table.
+    private static float AugerRange
+    {
+        get
+        {
+            var sheet = SkillCaster.ActionRange(DiademData.AugerActionId);
+            return sheet > 0 ? sheet : DiademData.AugerScanRange;
+        }
+    }
+
     // Fires the Aetheromatic Auger at the highest-priority monster in range
     // until the charge runs dry, nothing is in range, or the phase times out.
     private void HandleAugerPhase()
@@ -975,24 +992,29 @@ public sealed partial class RouteManager : IDisposable
             // route simply has none of them nearby.
             var (near, dist) = NearestPriorityMonster();
             Plugin.Log.Information($"[DiademGatherer] {CurrentLabel}: auger charged but no target "
-                + $"within {DiademData.AugerScanRange}y — nearest listed is "
+                + $"within {AugerRange:0.#}y — nearest listed is "
                 + (near == null ? "none in the zone" : $"{near} at {dist:F0}y"));
             EndAugerPhase();
             return;
         }
 
         var gauge = GameUiHelper.AugerGaugeValue();
-        if (SkillCaster.TryUseActionOnTarget(DiademData.AugerActionId, target.GameObjectId))
+        var dist2 = Vector3.Distance(Plugin.ObjectTable.LocalPlayer?.Position ?? Vector3.Zero, target.Position);
+        if (SkillCaster.TryUseActionOnTarget(DiademData.AugerActionId, target.GameObjectId, out var why))
         {
-            Plugin.Log.Information($"[DiademGatherer] Auger FIRED at {target.Name.TextValue} (gauge={gauge}).");
+            Plugin.Log.Information($"[DiademGatherer] Auger FIRED at {target.Name.TextValue} "
+                + $"at {dist2:F0}y (gauge={gauge}).");
             _augerAttempts = 0;
             _augerNextTry  = DateTime.UtcNow + AugerShotSpacing; // let the cast resolve, then look again
             return;
         }
 
-        // Unusable right now — one quick retry, then move on.
+        // Unusable right now — one quick retry, then move on. The game's reason
+        // goes in the log: a bare "refused" can't tell range from facing from a
+        // target the auger was never allowed to hit.
         Plugin.Log.Information(
-            $"[DiademGatherer] Auger action refused at {target.Name.TextValue} (gauge={gauge}, attempt {_augerAttempts + 1}).");
+            $"[DiademGatherer] Auger refused at {target.Name.TextValue} at {dist2:F0}y "
+            + $"(gauge={gauge}, attempt {_augerAttempts + 1}): {why}");
         _augerAttempts++;
         if (_augerAttempts >= 2) { EndAugerPhase(); return; }
         _augerNextTry = DateTime.UtcNow + TimeSpan.FromSeconds(1);
@@ -1032,7 +1054,7 @@ public sealed partial class RouteManager : IDisposable
         foreach (var name in DiademData.AugerPriority)
         {
             Dalamud.Game.ClientState.Objects.Types.IGameObject? best = null;
-            float bestDist = DiademData.AugerScanRange;
+            float bestDist = AugerRange;
 
             foreach (var obj in Plugin.ObjectTable)
             {

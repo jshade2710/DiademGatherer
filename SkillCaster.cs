@@ -121,10 +121,68 @@ public sealed class SkillCaster
 
     // Fire an action at a specific target (e.g. the Aetheromatic Auger).
     // GetActionStatus covers charge/usability; UseAction enforces range/LoS.
-    public static unsafe bool TryUseActionOnTarget(uint actionId, ulong targetId)
+    //
+    // `why` carries the game's own reason for a refusal. Logging a bare "refused"
+    // threw that away, which is how the auger spent an entire botany run failing
+    // for a reason nobody could name.
+    public static unsafe bool TryUseActionOnTarget(uint actionId, ulong targetId, out string why)
     {
         var am = ActionManager.Instance();
-        if (am == null || am->GetActionStatus(ActionType.Action, actionId) != 0) return false;
-        return am->UseAction(ActionType.Action, actionId, targetId);
+        if (am == null) { why = "ActionManager unavailable"; return false; }
+
+        var status = am->GetActionStatus(ActionType.Action, actionId);
+        if (status != 0)
+        {
+            why = $"GetActionStatus={status} ({ActionStatusText(status)})";
+            return false;
+        }
+
+        if (!am->UseAction(ActionType.Action, actionId, targetId))
+        {
+            why = "UseAction refused (range, facing, or line of sight)";
+            return false;
+        }
+
+        why = "";
+        return true;
+    }
+
+    // The handful of status codes worth naming; the rest are rare enough that the
+    // number itself is the useful thing to have in a log.
+    private static string ActionStatusText(uint status) => status switch
+    {
+        562 => "not facing the target",
+        565 => "target too far away",
+        566 => "target out of range",
+        571 => "target cannot be targeted",
+        572 => "no line of sight",
+        573 => "invalid target",
+        _   => "unnamed — look it up in the LogMessage sheet",
+    };
+
+    // An action's real range in yalms, straight from the game's Action sheet, or
+    // -1 when the sheet defers to weapon range. Our auger scan radius was a guess
+    // (25, then widened to 32) that had never been checked against the action.
+    private static readonly Dictionary<uint, float> RangeCache = new();
+
+    public static float ActionRange(uint actionId)
+    {
+        if (RangeCache.TryGetValue(actionId, out var cached)) return cached;
+
+        var range = -1f;
+        try
+        {
+            var row = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Action>().GetRowOrDefault(actionId);
+            if (row.HasValue) range = row.Value.Range;
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Warning($"[DiademGatherer] Couldn't read action {actionId}'s range: {ex.Message}");
+        }
+
+        RangeCache[actionId] = range;
+        Plugin.Log.Information($"[DiademGatherer] Action {actionId} range per the game's own sheet: "
+            + (range < 0 ? "weapon range (sheet says -1)" : $"{range:0.#}y"));
+        return range;
     }
 }
