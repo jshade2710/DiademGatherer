@@ -510,6 +510,22 @@ public sealed partial class RouteManager
         // and let vnavmesh run it (re-deciding every tick made us oscillate).
         if (hSep >= InteractHRange || vSep >= InteractVRange)
         {
+            // Out of the envelope, so any landing attempt we'd begun wasn't from
+            // a position worth landing in. The window has to measure CONTINUOUS
+            // time spent trying to touch down while in range — it used to start
+            // the first time we clipped the envelope on the way in and never
+            // restart, so the 2s burned during the descent and we arrived with an
+            // expired clock, firing the interact 160ms after settling:
+            //   14:26:21.372 h=2.2 v=1.9 inFlight=True
+            //   14:26:21.532 interacting (h=2.2 v=1.9 inFlight=True)  <- refused
+            //
+            // Hysteresis on the reset: hovering right on the boundary would
+            // otherwise clear the clock every other tick and we'd never fall
+            // through to the interact at all, which is the silent hover at R7
+            // that the fall-through exists to prevent.
+            if (hSep >= InteractHRange + 1f || vSep >= InteractVRange + 1f)
+                _landAttemptSince = DateTime.MinValue;
+
             // Path to the node's position SNAPPED ONTO THE MESH, which is what
             // GBR does. A node's raw position often isn't a walkable point — R4
             // sits in a pit — and pathing to a non-mesh point makes vnavmesh route
