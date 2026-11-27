@@ -312,7 +312,16 @@ public sealed partial class RouteManager
         _navIssued    = false;
         _navTarget    = null;
         _pathBuilder.Reset();
-        _gatherStep   = DateTime.UtcNow + TimeSpan.FromMilliseconds(150);
+
+        // A fresh approach gets a fresh landing window. This was only reset per
+        // NODE, so once the first attempt burned the 2s the clock stayed expired:
+        // every re-approach then fell straight through to an interact while still
+        // in flight, got refused, backed off, and dived at the node again. Three
+        // round trips at G4 in one visit, none of which tried to land.
+        _landAttemptSince = DateTime.MinValue;
+        _landedAt         = DateTime.MinValue;
+        _landPressAt      = DateTime.MinValue;
+        _gatherStep       = DateTime.UtcNow + TimeSpan.FromMilliseconds(150);
     }
 
     // Issue the approach move the way GBR does: prefer a COMBINED path — fly to a
@@ -587,8 +596,11 @@ public sealed partial class RouteManager
                 if (_nav.IsBusy()) { _nav.Stop(); _navIssued = false; }
                 if (DateTime.UtcNow >= _landPressAt)
                 {
+                    // A 1.2s gap only fits two presses into the 2s window. The
+                    // press is free when a landing is already underway, so spend
+                    // the window actually trying rather than waiting it out.
                     SkillCaster.ForceDismount();
-                    _landPressAt = DateTime.UtcNow + TimeSpan.FromSeconds(1.2);
+                    _landPressAt = DateTime.UtcNow + TimeSpan.FromMilliseconds(500);
                 }
                 _gatherStep = DateTime.UtcNow + TimeSpan.FromMilliseconds(150);
                 return;
