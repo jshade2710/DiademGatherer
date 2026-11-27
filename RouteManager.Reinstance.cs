@@ -375,6 +375,18 @@ public sealed partial class RouteManager
                     // couldn't read it — treat that as "no cap" rather than
                     // stopping the run on a bad read.
                     var tabScore = GameUiHelper.InspectAccumulatedScore();
+
+                    // Log it every pass, not just when capped. This is read on
+                    // every reinstance and was only ever shown in chat (which
+                    // never reaches dalamud.log) or the UI (lost on reload), so
+                    // the Diadem's own turn-in history was being thrown away —
+                    // while crafting has logged every turn-in since v0.1.6.
+                    // Each entry is self-dating, which is what makes a rate
+                    // recoverable after the fact.
+                    Plugin.Log.Information($"[DiademGatherer] Certify score: {CertTabName(_certTab)} "
+                        + (tabScore < 0 ? "unreadable" : $"reads {tabScore:N0}")
+                        + $" / cap {_config.MaxAccumulatedScore:N0}");
+
                     if (tabScore >= 0)
                     {
                         _gatherScoreByTab[_certTab] = tabScore;

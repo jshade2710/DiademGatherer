@@ -81,6 +81,20 @@ public sealed partial class RouteManager
     // still lands inside InteractHRange on the next visit.
     private const float RecordMaxSeparation = 2.4f;
 
+    // Treat the node as being on another tier once the floor under us differs
+    // from its height by more than this. 10 matches CombinedPathBuilder's own
+    // landing-point guard, so we stage exactly when it would have given up.
+    private const float TierGap = 10f;
+
+    // How far short of the node to stage. Must stay comfortably outside
+    // LandingDistance (6) or the follow-up ground path is too short to cross the
+    // landing circle and the builder fails for a different reason.
+    private const float TierStagingOffset = 12f;
+
+    // Set once we've closed an altitude gap for the current node, so a floor read
+    // that keeps reporting the far tier can't put us in a staging loop.
+    private bool _tierStaged;
+
     // A learned spot further than this from its node is stale (node moved to
     // another spawn point) — ignore it and re-learn.
     private const float LearnedSpotMaxRange = 12f;
@@ -317,6 +331,30 @@ public sealed partial class RouteManager
     {
         if (mounted)
         {
+            // The combined path anchors its ground route on the floor beneath US
+            // (CombinedPathBuilder.Start). GBR can assume that floor is also the
+            // node's floor, because it runs in open zones. The Diadem is stacked:
+            // this route's upper tier (G4..G7, Y 15-34) sits ~19y above the lower
+            // one (Y ~ -4), so flying at G4 from P3 reasons about a ground route
+            // running UNDER the island. The landing point then lands on the lower
+            // tier, the >10y guard rejects it, and the approach degrades to a raw
+            // fly-at-the-node — the fly-down-then-back-up at G4.
+            //
+            // Close the altitude gap first. Once we're on the node's own tier the
+            // floor beneath us IS its floor, and the normal combined path builds.
+            if (!_tierStaged && NeedsTierStaging(from, to, out var staging))
+            {
+                _tierStaged = true;
+                Plugin.Log.Information($"[DiademGatherer] {CurrentLabel}: node is "
+                    + $"{to.Y - from.Y:+0.#;-0.#}y off our tier — staging at "
+                    + $"<{staging.X:F1}, {staging.Y:F1}, {staging.Z:F1}> first.");
+                if (_nav.MoveCloseTo(staging, fly: true, range: ArrivalTolerance))
+                    return true;
+                // Couldn't issue it — fall straight through to the normal approach
+                // rather than reporting a move we never made.
+                Plugin.Log.Warning($"[DiademGatherer] {CurrentLabel}: staging move was refused.");
+            }
+
             if (_pathBuilder.IsIdle)
                 _pathBuilder.Start(_nav, from, to, LandingDistance,
                                    Plugin.Condition[ConditionFlag.InFlight]);
@@ -343,6 +381,33 @@ public sealed partial class RouteManager
         _groundLegCount = 0;
         _nav.MoveCloseTo(to, fly: mounted, range: _navCandidate <= 1 ? 1f : ArrivalTolerance);
         return true;
+    }
+
+    // Is the node on a different tier from the ground under us, and is there a
+    // sane spot on ITS tier to stage from? `staging` sits short of the node, on
+    // the side we're arriving from, so the follow-up ground path still has room
+    // to cross the landing circle instead of degenerating to a single waypoint.
+    private bool NeedsTierStaging(Vector3 from, Vector3 to, out Vector3 staging)
+    {
+        staging = default;
+
+        // No floor within reach means we're high over open air, which is itself a
+        // mismatch — that is the case PointOnFloor returns null for, and the one
+        // that makes the builder fail outright.
+        var floorY = _nav.PointOnFloor(from, 5f)?.Y ?? from.Y;
+        if (MathF.Abs(floorY - to.Y) <= TierGap) return false;
+
+        var dir = new Vector3(from.X - to.X, 0f, from.Z - to.Z);
+        var len = dir.Length();
+        if (len < 0.001f) return false;
+
+        var want = to + dir / len * TierStagingOffset;
+        staging  = _nav.Reachable(want, 10f);
+
+        // Only stage if the snapped point really is on the node's tier. A node on
+        // an island edge can snap the offset point back down into the void below,
+        // and a bad staging hop is worse than the fly-at-it we already have.
+        return MathF.Abs(staging.Y - to.Y) <= TierGap;
     }
 
     private bool NativeNodeValid()
@@ -738,6 +803,7 @@ public sealed partial class RouteManager
         _wasInFlight          = false;
         _wasMounted           = false;
         _groundLegCount       = 0;
+        _tierStaged           = false;
         _pathBuilder.Reset();
         _navBestH             = float.MaxValue;
         _navStallSince        = DateTime.MinValue;
