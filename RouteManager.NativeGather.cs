@@ -83,17 +83,13 @@ public sealed partial class RouteManager
 
     // Treat the node as being on another tier once the floor under us differs
     // from its height by more than this. 10 matches CombinedPathBuilder's own
-    // landing-point guard, so we stage exactly when it would have given up.
+    // landing-point guard, so we re-anchor exactly when it would have given up.
     private const float TierGap = 10f;
 
-    // How far short of the node to stage. Must stay comfortably outside
-    // LandingDistance (6) or the follow-up ground path is too short to cross the
+    // How far short of the node the ground anchor sits. Must stay comfortably
+    // outside LandingDistance (6) or the ground path is too short to cross the
     // landing circle and the builder fails for a different reason.
-    private const float TierStagingOffset = 12f;
-
-    // Set once we've closed an altitude gap for the current node, so a floor read
-    // that keeps reporting the far tier can't put us in a staging loop.
-    private bool _tierStaged;
+    private const float TierAnchorOffset = 12f;
 
     // A learned spot further than this from its node is stale (node moved to
     // another spawn point) — ignore it and re-learn.
@@ -340,24 +336,15 @@ public sealed partial class RouteManager
             // tier, the >10y guard rejects it, and the approach degrades to a raw
             // fly-at-the-node — the fly-down-then-back-up at G4.
             //
-            // Close the altitude gap first. Once we're on the node's own tier the
-            // floor beneath us IS its floor, and the normal combined path builds.
-            if (!_tierStaged && NeedsTierStaging(from, to, out var staging))
-            {
-                _tierStaged = true;
-                Plugin.Log.Information($"[DiademGatherer] {CurrentLabel}: node is "
-                    + $"{to.Y - from.Y:+0.#;-0.#}y off our tier — staging at "
-                    + $"<{staging.X:F1}, {staging.Y:F1}, {staging.Z:F1}> first.");
-                if (_nav.MoveCloseTo(staging, fly: true, range: ArrivalTolerance))
-                    return true;
-                // Couldn't issue it — fall straight through to the normal approach
-                // rather than reporting a move we never made.
-                Plugin.Log.Warning($"[DiademGatherer] {CurrentLabel}: staging move was refused.");
-            }
-
+            // Fix the ANCHOR, not the flight. Flying to the node's tier first and
+            // re-pathing worked, but a dead stop mid-approach followed by a fresh
+            // path is the most mechanical thing the bot does. Only the ground leg
+            // needs to be reasoned from the node's floor; the flight still starts
+            // from wherever we are, so the approach stays one continuous move.
             if (_pathBuilder.IsIdle)
                 _pathBuilder.Start(_nav, from, to, LandingDistance,
-                                   Plugin.Condition[ConditionFlag.InFlight]);
+                                   Plugin.Condition[ConditionFlag.InFlight],
+                                   TierGroundAnchor(from, to));
 
             _pathBuilder.Step(_nav, from);
             if (_pathBuilder.IsWorking) return false; // still computing
@@ -383,31 +370,31 @@ public sealed partial class RouteManager
         return true;
     }
 
-    // Is the node on a different tier from the ground under us, and is there a
-    // sane spot on ITS tier to stage from? `staging` sits short of the node, on
-    // the side we're arriving from, so the follow-up ground path still has room
-    // to cross the landing circle instead of degenerating to a single waypoint.
-    private bool NeedsTierStaging(Vector3 from, Vector3 to, out Vector3 staging)
+    // Where the ground leg should be reasoned from when the node sits on another
+    // tier; null to use the floor beneath the player as normal. The point sits
+    // short of the node on the side we're arriving from, so the ground path still
+    // has room to cross the landing circle instead of degenerating to one
+    // waypoint — and it's never flown to, only pathed from.
+    private Vector3? TierGroundAnchor(Vector3 from, Vector3 to)
     {
-        staging = default;
-
-        // No floor within reach means we're high over open air, which is itself a
-        // mismatch — that is the case PointOnFloor returns null for, and the one
-        // that makes the builder fail outright.
         var floorY = _nav.PointOnFloor(from, 5f)?.Y ?? from.Y;
-        if (MathF.Abs(floorY - to.Y) <= TierGap) return false;
+        if (MathF.Abs(floorY - to.Y) <= TierGap) return null;
 
         var dir = new Vector3(from.X - to.X, 0f, from.Z - to.Z);
         var len = dir.Length();
-        if (len < 0.001f) return false;
+        if (len < 0.001f) return null;
 
-        var want = to + dir / len * TierStagingOffset;
-        staging  = _nav.Reachable(want, 10f);
+        var anchor = _nav.Reachable(to + dir / len * TierAnchorOffset, 10f);
 
-        // Only stage if the snapped point really is on the node's tier. A node on
+        // Only use it if the snapped point really is on the node's tier. A node on
         // an island edge can snap the offset point back down into the void below,
-        // and a bad staging hop is worse than the fly-at-it we already have.
-        return MathF.Abs(staging.Y - to.Y) <= TierGap;
+        // and a ground route from there is no better than the one we're replacing.
+        if (MathF.Abs(anchor.Y - to.Y) > TierGap) return null;
+
+        Plugin.Log.Debug($"[DiademGatherer] {CurrentLabel}: node is "
+            + $"{to.Y - floorY:+0.#;-0.#}y off our floor — anchoring the ground leg "
+            + $"at <{anchor.X:F1}, {anchor.Y:F1}, {anchor.Z:F1}>.");
+        return anchor;
     }
 
     private bool NativeNodeValid()
@@ -803,7 +790,6 @@ public sealed partial class RouteManager
         _wasInFlight          = false;
         _wasMounted           = false;
         _groundLegCount       = 0;
-        _tierStaged           = false;
         _pathBuilder.Reset();
         _navBestH             = float.MaxValue;
         _navStallSince        = DateTime.MinValue;

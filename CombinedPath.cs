@@ -44,14 +44,20 @@ public sealed class CombinedPathBuilder
         _splitIndex = 0;
     }
 
-    public void Start(NavmeshIPC nav, Vector3 player, Vector3 target, float landingDistance, bool flying)
+    // `groundAnchor`, when given, is where the GROUND leg is reasoned from —
+    // used when the floor beneath the player isn't the target's floor. Only the
+    // ground path moves; the fly path still starts from the player, so the whole
+    // approach stays one continuous flight rather than a hop and a re-path.
+    public void Start(NavmeshIPC nav, Vector3 player, Vector3 target, float landingDistance, bool flying,
+                      Vector3? groundAnchor = null)
     {
         Reset();
         _target          = target;
         _landingDistance = landingDistance;
 
-        // Ground pathing has to start from the floor beneath us, not mid-air.
-        var start = flying ? nav.PointOnFloor(player, 5f) : player;
+        // Ground pathing has to start from a floor, not mid-air — and from the
+        // TARGET's floor when that isn't the one under us.
+        var start = groundAnchor ?? (flying ? nav.PointOnFloor(player, 5f) : player);
         if (start == null) { _stage = Stage.Failed; return; }
 
         _task  = nav.PathfindAsync(start.Value, target, fly: false);
