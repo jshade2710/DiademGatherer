@@ -14,6 +14,10 @@ public enum BotState
     GatheringNode,          // interact with the local node and work it
     AugerPhase,             // firing the Aetheromatic Auger at priority monsters
 
+    // Fishing: one spot, and AutoHook drives the rod once we are standing in it.
+    FishingApproach,        // flying to the fishing hole and landing in it
+    FishingActive,          // parked in the hole, AutoHook fishing
+
     // Reinstance flow:
     // leave duty → [certify at Flotpassant] → [shop at Enie] → Aurvael → re-enter
     ReinstanceLeaving,      // clicking out of the duty
@@ -28,6 +32,7 @@ public enum BotState
 public sealed partial class RouteManager : IDisposable
 {
     private readonly NavmeshIPC     _nav;
+    private readonly AutoHookIPC    _autoHook;
     private readonly Configuration  _config;
 
     private BotState _state        = BotState.Idle;
@@ -154,6 +159,7 @@ public sealed partial class RouteManager : IDisposable
     public bool     IsRunning           => _running;
     public bool     IsPaused            => _paused;
     public bool     NavmeshAvailable    => _nav.IsAvailable;
+    public bool     AutoHookAvailable   => _autoHook.IsAvailable;
     public bool     NavReady            => _nav.IsReady();
     public float    NavBuildProgress    => _nav.BuildProgress();
 
@@ -173,16 +179,25 @@ public sealed partial class RouteManager : IDisposable
     {
         get
         {
-            if (!_running || _route == null) return "—";
+            if (!_running) return "—";
+
+            // Fishing has no sequence to be a position within; what matters is
+            // the hole and how it's going.
+            if (IsFishing)
+                return $"{_fishHole.SpotName}  →  {_fishCaught} caught " +
+                       $"(~{_fishCaught * _fishHole.PointsEach:N0} pts)";
+
+            if (_route == null) return "—";
             var phase = _inLeadIn ? "Lead-in" : "Cycle";
             var seq   = CurrentSequence();
             return $"{phase} {_seqIndex + 1}/{seq?.Count ?? 0}  →  {CurrentLabel}";
         }
     }
 
-    public RouteManager(NavmeshIPC nav, Configuration config, SkillCaster skills)
+    public RouteManager(NavmeshIPC nav, AutoHookIPC autoHook, Configuration config, SkillCaster skills)
     {
-        _nav    = nav;
+        _nav      = nav;
+        _autoHook = autoHook;
         _config = config;
         _skills = skills;
         _shop   = new ShopRunner(config, nav);
@@ -207,6 +222,10 @@ public sealed partial class RouteManager : IDisposable
             Plugin.ChatGui.PrintError("[DiademGatherer] vnavmesh is not available. Cannot start.");
             return;
         }
+
+        // Fishing isn't a route — one hole, no waypoints, no chain — so it takes
+        // its own start path rather than being bent into the playback model.
+        if (_config.Mode == GatheringMode.Fishing) { StartFishingRun(); return; }
 
         var route = SelectedRoute();
         if (route == null)
@@ -286,6 +305,80 @@ public sealed partial class RouteManager : IDisposable
         SetState(BotState.FlyingToNode);
     }
 
+    // Fishing's own Start. Shares the instance/zone handling with the routes,
+    // but there is no route to validate, no lead-in and no cycle — so _route
+    // stays null for the whole run and everything route-shaped has to tolerate
+    // that (see ResetRouteToStart and PlaybackInfo).
+    private void StartFishingRun()
+    {
+        if (!_autoHook.IsAvailable)
+        {
+            Plugin.ChatGui.PrintError(
+                "[DiademGatherer] AutoHook isn't installed or isn't loaded. It drives the actual " +
+                "fishing, so there's nothing to start without it.");
+            return;
+        }
+
+        var hole = DiademData.FishingHoleByLabel(_config.FishingHoleLabel);
+
+        if (string.IsNullOrWhiteSpace(_config.AutoHookPreset))
+        {
+            Plugin.ChatGui.PrintError(
+                "[DiademGatherer] No AutoHook preset set — fill it in on the Fishing panel. " +
+                "Without it AutoHook would fish whatever preset happened to be selected.");
+            return;
+        }
+
+        // Catch a name mismatch here rather than discovering it two hours later.
+        // null = we couldn't read AutoHook's config, which is not a reason to
+        // refuse to start.
+        if (AutoHookIPC.PresetExists(_config.AutoHookPreset) == false)
+        {
+            Plugin.ChatGui.PrintError(
+                $"[DiademGatherer] AutoHook has no preset named \"{_config.AutoHookPreset}\". " +
+                "The match is exact and case-sensitive, and trailing spaces count — check the name " +
+                "in AutoHook, or rename the preset to something plain.");
+            return;
+        }
+
+        _route               = null;   // fishing has no route; see note above
+        _running             = true;
+        _fishSpot            = null;   // re-resolve, in case the hole changed
+        _retryAt             = DateTime.MinValue;
+        _lastGatherAt        = DateTime.UtcNow;
+        _gathersThisInstance = 0;
+        _barrenInstances     = 0;
+
+        if (Plugin.ClientState.TerritoryType == DiademData.DiademTerritoryId && _instanceEnteredAt == null)
+            _instanceEnteredAt = DateTime.UtcNow;
+
+        var job = Plugin.ObjectTable.LocalPlayer?.ClassJob.RowId ?? 0;
+        if (job != SkillCaster.FisherJobId)
+            Plugin.ChatGui.PrintError(
+                "[DiademGatherer] Fishing expects FISHER — switch jobs or this run will just " +
+                "stand in the hole unable to cast.");
+
+        Plugin.ChatGui.Print(
+            $"[DiademGatherer] Starting fishing at {hole.SpotName} for {hole.TargetFish} " +
+            $"({hole.PointsEach} pts each) — AutoHook preset \"{_config.AutoHookPreset}\".");
+
+        if (Plugin.ClientState.TerritoryType != DiademData.DiademTerritoryId)
+        {
+            if (Plugin.ClientState.TerritoryType == DiademData.FirmamentTerritoryId)
+            {
+                BeginDiademEntry();
+                return;
+            }
+
+            Plugin.ChatGui.Print(
+                "[DiademGatherer] Not in the Diadem yet — fishing will begin automatically on zone-in.");
+            SetState(BotState.WaitingForInstance);
+            return;
+        }
+
+        BeginFishing();
+    }
+
     // Freeze in place: stop moving, stop gathering, hold all state. Resume
     // re-approaches the current node; SkipCurrentNode moves on to the next.
     private DateTime _pausedAt = DateTime.MinValue;
@@ -296,6 +389,8 @@ public sealed partial class RouteManager : IDisposable
         _paused   = true;
         _pausedAt = DateTime.UtcNow;
         _nav.Stop();
+        // Pausing has to reach AutoHook too, or "paused" would still be casting.
+        StopAutoHook("paused");
         Plugin.ChatGui.Print("[DiademGatherer] Paused. Resume re-approaches the current node; Skip moves to the next.");
     }
 
@@ -312,6 +407,17 @@ public sealed partial class RouteManager : IDisposable
             _reinstanceStartedAt += pausedFor;
             _stateEntered        += pausedFor;
             _pausedAt = DateTime.MinValue;
+        }
+
+        // Fishing resumes by re-approaching the hole: Pause switched AutoHook
+        // off, and EnterFishingActive is what switches it back on.
+        if (IsFishing)
+        {
+            _fishApproachSince = DateTime.UtcNow;
+            _fishNavIssued     = false;
+            SetState(BotState.FishingApproach);
+            Plugin.ChatGui.Print($"[DiademGatherer] Resumed — heading back to {_fishHole.SpotName}.");
+            return;
         }
 
         // Reinstance / waiting states can just continue where they were;
@@ -332,6 +438,22 @@ public sealed partial class RouteManager : IDisposable
     public void SkipCurrentNode()
     {
         if (!_running) return;
+
+        // There is nothing to skip to when fishing — one hole is the whole run.
+        // Treat it as "re-approach", which is the only useful thing the button
+        // could mean here (and the way out of a bad landing).
+        if (IsFishing)
+        {
+            _paused = false;
+            _nav.Stop();
+            StopAutoHook("re-approaching");
+            _fishApproachSince = DateTime.UtcNow;
+            _fishNavIssued     = false;
+            Plugin.ChatGui.Print($"[DiademGatherer] Re-approaching {_fishHole.SpotName}.");
+            SetState(BotState.FishingApproach);
+            return;
+        }
+
         _paused         = false;
         _inDetour       = false;
         _detourTarget   = null;
@@ -348,6 +470,7 @@ public sealed partial class RouteManager : IDisposable
         _inDetour       = false;
         _detourTarget   = null;
         _nav.Stop();
+        StopAutoHook("stopped");
 
         SetState(BotState.Idle);
         Plugin.ChatGui.Print("[DiademGatherer] Stopped.");
@@ -389,6 +512,13 @@ public sealed partial class RouteManager : IDisposable
                 if (IsZoning) break;
                 if (Plugin.ClientState.TerritoryType == DiademData.DiademTerritoryId)
                 {
+                    if (_config.Mode == GatheringMode.Fishing)
+                    {
+                        Plugin.ChatGui.Print("[DiademGatherer] Entered the Diadem — heading for the hole.");
+                        BeginFishing();
+                        break;
+                    }
+
                     Plugin.ChatGui.Print("[DiademGatherer] Entered the Diadem — starting route.");
                     ResetRouteToStart();
                     SetState(BotState.FlyingToNode);
@@ -411,6 +541,13 @@ public sealed partial class RouteManager : IDisposable
                 break;
             case BotState.AugerPhase:
                 HandleAugerPhase();
+                break;
+
+            case BotState.FishingApproach:
+                HandleFishingApproach();
+                break;
+            case BotState.FishingActive:
+                HandleFishingActive();
                 break;
 
             case BotState.ReinstanceLeaving:      HandleReinstanceLeaving();      break;

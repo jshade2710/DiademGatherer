@@ -177,6 +177,80 @@ public static class DiademData
             ("G8", -148.64f,  -5.08f, -391.94f))
     );
 
+    // ── Diadem fishing (grade 4 / Lv. 80 holes) ────────────────────────────────
+    // Fishing is NOT a route. Every grade-4 hole is a single spot you stand in
+    // and cast from, so there is nothing to path between and no chain to keep
+    // intact — the whole "16 waypoints in sequence" model doesn't apply. And the
+    // rotation itself isn't ours either: AutoHook already does tug detection,
+    // hooksets, Double/Triple Hook and GP management far better than
+    // reimplementing it would, so we park the character in the hole and hand the
+    // rod over. See IPC/AutoHookIPC.cs.
+    //
+    // NOTE ON POSITIONS: none are stored here, on purpose. A hole's real world
+    // position comes from the game's own FishingSpot sheet, which carries world
+    // X/Z plus a radius, resolved at runtime by ResolveFishingSpot. The map
+    // coordinates guides quote ("X: 32, Y: 11") are far too coarse to stand on —
+    // one map unit is roughly 50 yalms and these holes are single digits wide, so
+    // an integer map coordinate is a ±25-yalm guess.
+    //
+    // Values below are the Fourth Restoration Phase (Lv. 80) figures.
+    public sealed record FishingHole(
+        string Label,        // short id, used in the config and the UI
+        string SpotName,     // PlaceName exactly as the FishingSpot sheet spells it
+        string TargetFish,   // the fish the hole is worth visiting for
+        string Bait,         // bait AutoHook's preset should be forcing
+        int    PointsEach,   // skyward points per fish, granted on inspection
+        int    ScripsEach,
+        string Tug,          // the target's tug, and therefore its hookset
+        string BiteWindow,   // seconds after Cast in which the target can bite
+        string UmbralFish,   // the weather-only fish that shares this hole
+        string UmbralWeather)
+    {
+        public override string ToString() => $"{SpotName} — {TargetFish}";
+    }
+
+    // Sweatfish is the default: at 3450+ gathering a Triple Hook lands seven of
+    // them, and unlike the mooch-based holes it needs no predator fish, which
+    // makes it both the highest-throughput option and much the most reliable one
+    // to automate.
+    public static readonly FishingHole Sweatfish = new(
+        Label: "Sweatfish", SpotName: "Blustery Cloudtop",
+        TargetFish: "Grade 4 Artisanal Skybuilders' Sweatfish",
+        Bait: "Diadem Hoverworm", PointsEach: 106, ScripsEach: 17,
+        Tug: "! (light) — Precision Hookset", BiteWindow: "14-24s",
+        UmbralFish: "Artisanal Marrella (512 pts)", UmbralWeather: "Umbral Duststorms");
+
+    public static readonly FishingHole LightningChaser = new(
+        Label: "Lightning Chaser", SpotName: "Windswept Cloudtop",
+        TargetFish: "Grade 4 Artisanal Skybuilders' Lightning Chaser",
+        Bait: "any Diadem skyfishing bait (mooches a Ghost Faerie)",
+        PointsEach: 996, ScripsEach: 64,
+        Tug: "!!! (heavy) — Powerful Hookset", BiteWindow: "16s+ after Mooch",
+        UmbralFish: "Artisanal Meganeura (1078 pts)", UmbralWeather: "Umbral Levin");
+
+    public static readonly FishingHole LittleThalaos = new(
+        Label: "Little Thalaos", SpotName: "Swirling Cloudtop",
+        TargetFish: "Grade 4 Artisanal Skybuilders' Little Thalaos",
+        Bait: "any Diadem skyfishing bait (mooches a Ghost Faerie)",
+        PointsEach: 911, ScripsEach: 124,
+        Tug: "!! (medium) — Powerful Hookset", BiteWindow: "18s+ after Mooch",
+        UmbralFish: "Artisanal Griffin (982 pts)", UmbralWeather: "Umbral Tempest");
+
+    public static readonly FishingHole Sculptor = new(
+        Label: "Sculptor", SpotName: "Calm Cloudtop",
+        TargetFish: "Grade 4 Artisanal Skybuilders' Sculptor",
+        Bait: "Diadem Crane Fly", PointsEach: 250, ScripsEach: 17,
+        Tug: "!! (medium), needs Fisher's Intuition", BiteWindow: "20s+",
+        UmbralFish: "Artisanal Crimson Namitaro (542 pts)", UmbralWeather: "Umbral Flare");
+
+    public static readonly IReadOnlyList<FishingHole> FishingHoles = new[]
+    {
+        Sweatfish, LightningChaser, LittleThalaos, Sculptor,
+    };
+
+    public static FishingHole FishingHoleByLabel(string? label)
+        => FishingHoles.FirstOrDefault(h => h.Label == label) ?? Sweatfish;
+
     // ── Registry ────────────────────────────────────────────────────────────────
     public static readonly IReadOnlyList<RouteDefinition> AllRoutes = new[]
     {

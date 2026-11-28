@@ -134,6 +134,26 @@ public sealed partial class RouteManager
     {
         SkillCaster.MinerJobId    => _gatherScoreByTab.TryGetValue(0, out var m) ? m : -1,
         SkillCaster.BotanistJobId => _gatherScoreByTab.TryGetValue(1, out var b) ? b : -1,
+        SkillCaster.FisherJobId   => _gatherScoreByTab.TryGetValue(2, out var f) ? f : -1,
+        _                         => -1,
+    };
+
+    // The job this run earns points on. Driven by the selected mode, which is
+    // the one thing that's meaningful for all three — fishing has no route to
+    // read a category off.
+    private uint ActiveJob => _config.Mode switch
+    {
+        GatheringMode.Mining  => SkillCaster.MinerJobId,
+        GatheringMode.Botany  => SkillCaster.BotanistJobId,
+        GatheringMode.Fishing => SkillCaster.FisherJobId,
+        _                     => 0u,
+    };
+
+    private static int JobCertTab(uint job) => job switch
+    {
+        SkillCaster.MinerJobId    => 0,
+        SkillCaster.BotanistJobId => 1,
+        SkillCaster.FisherJobId   => 2,
         _                         => -1,
     };
 
@@ -209,18 +229,15 @@ public sealed partial class RouteManager
         _reinstanceStartedAt = DateTime.UtcNow;
         _uiActionAt          = DateTime.UtcNow + TimeSpan.FromSeconds(1.5);
 
-        // This job has hit the 500k cap — everything gathered from here on is
-        // worth nothing, so don't head back in.
-        var job = _route?.Category switch
-        {
-            GatheringMode.Mining => SkillCaster.MinerJobId,
-            GatheringMode.Botany => SkillCaster.BotanistJobId,
-            _                    => 0u,
-        };
+        // This job has hit the 500k cap — everything earned from here on is
+        // worth nothing, so don't head back in. Keyed off the MODE rather than
+        // the route's category: fishing runs with no route at all, and reading
+        // _route?.Category there silently yielded 0 and skipped the check.
+        var job = ActiveJob;
         if (job != 0 && JobCapped(job))
         {
             Plugin.ChatGui.Print(
-                $"[DiademGatherer] {CertTabName(job == SkillCaster.MinerJobId ? 0 : 1)} has reached " +
+                $"[DiademGatherer] {CertTabName(JobCertTab(job))} has reached " +
                 $"{_config.MaxAccumulatedScore:N0} points — nothing more to earn here. Stopping.");
             Stop();
             return;
@@ -325,7 +342,7 @@ public sealed partial class RouteManager
     }
 
     // ── Certification at Flotpassant ───────────────────────────────────────────
-    // Per tab (miner, then botany): Auto-submit (node 8) → Request Inspection
+    // Per tab (miner, botanist, fisher): Auto-submit (node 8) → Request Inspection
     // (node 10), repeating while Auto-submit stays enabled, then next tab.
     // Tab radios are identified empirically: click a candidate, verify via the
     // window's active-tab value, try the next on mismatch.
@@ -477,7 +494,11 @@ public sealed partial class RouteManager
         _certRadioTry = 0;
         _certCycles   = 0;
 
-        if (_certTab > 1) // miner + botany done
+        // Miner, botanist AND fisher. Fish are certified at the same window on
+        // their own tab, so fishing needs tab 2 visited — and visiting it on a
+        // gathering run costs one tab switch and makes the fisher score
+        // readable for the per-class cap, so it isn't gated on the mode.
+        if (_certTab > 2)
         {
             Plugin.Log.Debug("[DiademGatherer] Certification complete.");
             GameUiHelper.CloseAddon("HWDGathereInspect");
@@ -602,14 +623,26 @@ public sealed partial class RouteManager
         if (_barrenInstances >= 2)
         {
             Plugin.ChatGui.PrintError(
-                "[DiademGatherer] Two instances in a row with zero gathers — reinstancing isn't the " +
-                "problem. Check the route's recorded positions and that you're on the right job. Stopping.");
+                _config.Mode == GatheringMode.Fishing
+                    ? "[DiademGatherer] Two instances in a row with zero fish — reinstancing isn't the " +
+                      "problem. Check the AutoHook preset name and that you're on Fisher. Stopping."
+                    : "[DiademGatherer] Two instances in a row with zero gathers — reinstancing isn't " +
+                      "the problem. Check the route's recorded positions and that you're on the right " +
+                      "job. Stopping.");
             Stop();
             return;
         }
 
-        // We're in. Restart the route from the very top, as a fresh run.
         _instanceEnteredAt = DateTime.UtcNow;
+
+        if (_config.Mode == GatheringMode.Fishing)
+        {
+            Plugin.ChatGui.Print("[DiademGatherer] Reinstanced — heading back to the hole.");
+            BeginFishing();
+            return;
+        }
+
+        // We're in. Restart the route from the very top, as a fresh run.
         ResetRouteToStart();
         Plugin.ChatGui.Print("[DiademGatherer] Reinstanced — restarting route from the top.");
         SetState(BotState.FlyingToNode);
@@ -617,7 +650,8 @@ public sealed partial class RouteManager
 
     private void ResetRouteToStart()
     {
-        _inLeadIn         = _route!.LeadIn.Count > 0;
+        if (_route == null) return;   // fishing: nothing route-shaped to reset
+        _inLeadIn         = _route.LeadIn.Count > 0;
         _seqIndex         = 0;
         _moveAttempts     = 0;
         _consecutiveSkips = 0;

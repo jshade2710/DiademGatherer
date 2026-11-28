@@ -3,8 +3,8 @@
   <PropertyGroup>
     <Authors>Iam Batman</Authors>
     <Company></Company>
-    <Version>0.1.17.0</Version>
-    <Description>Automated Diadem gathering routes for GatherBuddy Reborn + vnavmesh.</Description>
+    <Version>0.2.0.0</Version>
+    <Description>Automated Diadem gathering and fishing for vnavmesh + AutoHook.</Description>
     <AssemblyName>DiademGatherer</AssemblyName>
     <RootNamespace>DiademGatherer</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>

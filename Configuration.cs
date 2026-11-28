@@ -46,6 +46,34 @@ public class Configuration : IPluginConfiguration
     // (botany drops, Icetraps first — see DiademData.AugerPriority).
     public bool UseAuger { get; set; } = true;
 
+    // ── Fishing (Diadem skyfishing, driven by AutoHook) ───────────────────────
+    // Which grade-4 hole to park on; see DiademData.FishingHoles.
+    public string FishingHoleLabel { get; set; } = "Sweatfish";
+
+    // The AutoHook preset that actually fishes. AutoHook matches this EXACTLY
+    // and case-sensitively, and does not trim it, so a preset whose name carries
+    // doubled or trailing spaces has to be reproduced character for character.
+    // Renaming the preset in AutoHook to something plain is much the safer fix —
+    // the UI says so next to this field.
+    public string AutoHookPreset { get; set; } = "Diadem Sweatfish";
+
+    // Normally the hole's world position comes from the game's own FishingSpot
+    // sheet. This is the override for when that lookup can't find it (a renamed
+    // place name on a non-English client, or a sheet shape we didn't expect):
+    // stand in the hole, press Record, and we'll fly to that instead.
+    public Dictionary<string, SavedVector3> RecordedFishingSpots { get; set; } = new();
+
+    public bool TryGetFishingSpot(string label, out Vector3 pos)
+    {
+        pos = Vector3.Zero;
+        if (!RecordedFishingSpots.TryGetValue(label, out var saved)) return false;
+        pos = saved.ToVector3();
+        return true;
+    }
+
+    public void SetFishingSpot(string label, Vector3 pos)
+        => RecordedFishingSpots[label] = new SavedVector3(pos);
+
     // ── Scrip shopping at Enie during reinstance ──────────────────────────────
     // Target is a remaining-to-buy counter: set how many to buy, and the shop
     // runner decrements it toward 0 as it purchases (persisted each buy). This

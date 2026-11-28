@@ -29,6 +29,7 @@ public sealed class Plugin : IDalamudPlugin
 
     private readonly NavmeshIPC    _navmesh;
     private readonly ArtisanIPC    _artisan;
+    private readonly AutoHookIPC   _autoHook = new();
 
     private readonly WindowSystem _windowSystem = new("DiademGatherer");
     private readonly MainWindow   _mainWindow;
@@ -54,7 +55,7 @@ public sealed class Plugin : IDalamudPlugin
         _navmesh = new NavmeshIPC(PluginInterface);
         _artisan = new ArtisanIPC(PluginInterface);
 
-        RouteManager    = new RouteManager(_navmesh, Configuration, new SkillCaster());
+        RouteManager    = new RouteManager(_navmesh, _autoHook, Configuration, new SkillCaster());
         CraftingManager = new CraftingManager(_artisan, _navmesh, Configuration);
 
         _mainWindow = new MainWindow(this);

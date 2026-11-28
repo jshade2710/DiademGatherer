@@ -17,6 +17,7 @@ public sealed class SkillCaster
 {
     public const uint MinerJobId    = 16;
     public const uint BotanistJobId = 17;
+    public const uint FisherJobId   = 18;
 
     public const uint GeneralActionJump          = 2;
     public const uint GeneralActionRepair        = 6;   // dark-matter self-repair

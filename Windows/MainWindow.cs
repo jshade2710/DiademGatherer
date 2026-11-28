@@ -104,12 +104,27 @@ public sealed class MainWindow : Window
         Section("Job");
         DrawModeSelector();
 
+        if (Cfg.Mode == GatheringMode.Fishing)
+        {
+            Section("Fishing");
+            DrawFishingPanel();
+        }
+
         Section("Quick Options");
         Toggle("Certify loot at Flotpassant", () => Cfg.EnableCertification, v => Cfg.EnableCertification = v,
-            "During each reinstance: Auto-submit + Request Inspection on both tabs before shopping / re-entering.");
-        Toggle("Loop route", () => Cfg.LoopRoute, v => Cfg.LoopRoute = v, "Repeat the cycle indefinitely.");
-        Toggle("Auger priority monsters", () => Cfg.UseAuger, v => Cfg.UseAuger = v,
-            "Shoot the Aetheromatic Auger at priority monsters (Icetrap first) after gathers and on the R6 detour.");
+            "During each reinstance: Auto-submit + Request Inspection on the miner, botanist and fisher "
+            + "tabs before shopping / re-entering.");
+
+        // Neither of these means anything while fishing: there is no cycle to
+        // loop, and Fisher cannot use the Auger at all (nor does fishing charge
+        // it), so showing them switched on would just be a lie.
+        if (Cfg.Mode != GatheringMode.Fishing)
+        {
+            Toggle("Loop route", () => Cfg.LoopRoute, v => Cfg.LoopRoute = v, "Repeat the cycle indefinitely.");
+            Toggle("Auger priority monsters", () => Cfg.UseAuger, v => Cfg.UseAuger = v,
+                "Shoot the Aetheromatic Auger at priority monsters (Icetrap first) after gathers and on the R6 detour.");
+        }
+
         Toggle("Auto-reinstance", () => Cfg.AutoReinstance, v => Cfg.AutoReinstance = v,
             "Leave and re-enter the Diadem via Aurvael when the instance timer hits the limit.");
 
@@ -121,28 +136,121 @@ public sealed class MainWindow : Window
 
     private void DrawModeSelector()
     {
-        if (Cfg.Mode is not (GatheringMode.Mining or GatheringMode.Botany))
+        if (Cfg.Mode is not (GatheringMode.Mining or GatheringMode.Botany or GatheringMode.Fishing))
         { Cfg.Mode = GatheringMode.Mining; Cfg.Save(); }
 
         bool changed = false;
         changed |= ModeRadio("Mining##m", GatheringMode.Mining);
         ImGui.SameLine();
         changed |= ModeRadio("Botany##b", GatheringMode.Botany);
+        ImGui.SameLine();
+        changed |= ModeRadio("Fishing##f", GatheringMode.Fishing);
         if (changed)
         {
-            var first = DiademData.RoutesFor(Cfg.Mode).FirstOrDefault();
-            if (first != null) Cfg.SelectedRouteName = first.Name;
+            // Fishing has no routes to select between — one hole is the run.
+            if (Cfg.Mode != GatheringMode.Fishing)
+            {
+                var first = DiademData.RoutesFor(Cfg.Mode).FirstOrDefault();
+                if (first != null) Cfg.SelectedRouteName = first.Name;
+            }
             Cfg.Save();
         }
 
         ImGui.SameLine();
-        ImGui.TextDisabled($"  →  {Mgr.SelectedRoute()?.Name ?? "—"}");
+        ImGui.TextDisabled(Cfg.Mode == GatheringMode.Fishing
+            ? $"  →  {DiademData.FishingHoleByLabel(Cfg.FishingHoleLabel).SpotName}"
+            : $"  →  {Mgr.SelectedRoute()?.Name ?? "—"}");
     }
 
     private bool ModeRadio(string label, GatheringMode mode)
     {
         if (ImGui.RadioButton(label, Cfg.Mode == mode)) { Cfg.Mode = mode; return true; }
         return false;
+    }
+
+    // Fishing config. Short on purpose: the rotation lives in AutoHook, so the
+    // only decisions here are which hole and which preset.
+    private void DrawFishingPanel()
+    {
+        var hole = DiademData.FishingHoleByLabel(Cfg.FishingHoleLabel);
+
+        if (ImGui.BeginCombo("Hole##fhole", hole.Label))
+        {
+            foreach (var h in DiademData.FishingHoles)
+            {
+                if (ImGui.Selectable(h.Label, h.Label == hole.Label))
+                {
+                    Cfg.FishingHoleLabel = h.Label;
+                    Cfg.Save();
+                }
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip($"{h.SpotName}\n{h.TargetFish}\n" +
+                                     $"{h.PointsEach} pts / {h.ScripsEach} scrips each\n" +
+                                     $"{h.Tug}, bites {h.BiteWindow}\nBait: {h.Bait}\n" +
+                                     $"{h.UmbralWeather}: {h.UmbralFish}");
+            }
+            ImGui.EndCombo();
+        }
+
+        ImGui.TextDisabled($"{hole.SpotName} · {hole.PointsEach} pts each · {hole.Tug}");
+        ImGui.TextDisabled($"bites {hole.BiteWindow} · bait {hole.Bait}");
+
+        var preset = Cfg.AutoHookPreset;
+        if (ImGui.InputText("AutoHook preset##fpreset", ref preset, 128))
+            Cfg.AutoHookPreset = preset;
+        if (ImGui.IsItemDeactivatedAfterEdit()) Cfg.Save();
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(
+            "The AutoHook preset that does the actual fishing.\n\n"
+            + "AutoHook matches this EXACTLY: case-sensitive, and it does not trim.\n"
+            + "If your preset's name has doubled or trailing spaces, rename it in\n"
+            + "AutoHook to something plain rather than trying to reproduce them.");
+
+        ImGui.Spacing();
+        ImGui.TextColored(Gray, "Prerequisites");
+        IpcRow("vnavmesh", Mgr.NavmeshAvailable);
+        IpcRow("AutoHook", Mgr.AutoHookAvailable);
+
+        ImGui.Spacing();
+
+        // Escape hatch for the spot lookup. Normally the hole's position comes
+        // from the game's own FishingSpot sheet, which is exact; this covers a
+        // client where the place name doesn't match (non-English) or a mesh that
+        // won't resolve.
+        var recorded = Cfg.TryGetFishingSpot(hole.Label, out var spot);
+        if (ImGui.Button($"Record this spot##frec"))
+        {
+            var me = Plugin.ObjectTable.LocalPlayer;
+            if (me == null)
+            {
+                Plugin.ChatGui.PrintError("[DiademGatherer] Can't read your position right now.");
+            }
+            else
+            {
+                Cfg.SetFishingSpot(hole.Label, me.Position);
+                Cfg.Save();
+                Plugin.ChatGui.Print(
+                    $"[DiademGatherer] Recorded {hole.SpotName} at " +
+                    $"<{me.Position.X:F1}, {me.Position.Y:F1}, {me.Position.Z:F1}>.");
+            }
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(
+            "Only needed if the automatic lookup fails.\n"
+            + "Stand IN the hole (where you can cast) and press this.");
+
+        if (recorded)
+        {
+            ImGui.SameLine();
+            if (ImGui.Button("Clear##frecclr"))
+            {
+                Cfg.RecordedFishingSpots.Remove(hole.Label);
+                Cfg.Save();
+            }
+            ImGui.TextDisabled($"override: <{spot.X:F1}, {spot.Y:F1}, {spot.Z:F1}>");
+        }
+        else
+        {
+            ImGui.TextDisabled("position: from the game's fishing-spot data");
+        }
     }
 
     private void DrawAdvanced()
@@ -177,15 +285,25 @@ public sealed class MainWindow : Window
 
     private void DrawRunningPanel()
     {
-        var route = Mgr.SelectedRoute();
+        var fishing = Mgr.IsFishing;
         StatusBadge(Mgr.IsPaused ? "PAUSED" : "RUNNING",
                     Mgr.IsPaused ? Amber : Green,
-                    $"{route?.Name}");
+                    fishing ? Mgr.FishingHole.SpotName : $"{Mgr.SelectedRoute()?.Name}");
 
         ImGui.Spacing();
         ImGui.TextColored(Gray, "Now");
         ImGui.SameLine(90);
         ImGui.TextUnformatted(Mgr.PlaybackInfo);
+
+        if (fishing)
+        {
+            ImGui.TextColored(Gray, "Rod");
+            ImGui.SameLine(90);
+            if (Mgr.CurrentState == BotState.FishingActive)
+                ImGui.TextColored(Green, "AutoHook is driving");
+            else
+                ImGui.TextColored(Amber, "approaching the hole");
+        }
 
         if (Mgr.CurrentState == BotState.FlyingToNode && !Mgr.NavReady)
         {
@@ -228,7 +346,10 @@ public sealed class MainWindow : Window
         if (Mgr.IsPaused) { if (AccentButton("Resume##res", GoBtn, half))   Mgr.Resume(); }
         else              { if (AccentButton("Pause##pau",  WarnBtn, half)) Mgr.Pause();  }
         ImGui.SameLine();
-        if (AccentButton("Skip Node##skip", ActionBtn, half)) Mgr.SkipCurrentNode();
+        // One hole is the whole fishing run, so there is nothing to skip to —
+        // the useful action is to go stand in it again.
+        if (AccentButton(Mgr.IsFishing ? "Re-approach##skip" : "Skip Node##skip", ActionBtn, half))
+            Mgr.SkipCurrentNode();
 
         if (AccentButton("Force Reinstance##fri", WarnBtn, new Vector2(-1, 0))) Mgr.TriggerReinstance();
         if (AccentButton("Stop##stop", StopBtn, new Vector2(-1, 0)))          Mgr.Stop();
@@ -236,6 +357,23 @@ public sealed class MainWindow : Window
 
     private void DrawStartButton()
     {
+        if (Cfg.Mode == GatheringMode.Fishing)
+        {
+            // No route to validate; what fishing needs instead is AutoHook and a
+            // preset name to hand it.
+            var hasPreset = !string.IsNullOrWhiteSpace(Cfg.AutoHookPreset);
+            var canFish   = Mgr.NavmeshAvailable && Mgr.AutoHookAvailable && hasPreset;
+
+            if (!canFish) ImGui.BeginDisabled();
+            if (AccentButton("Start Fishing##start", GoBtn, new Vector2(-1, 34))) Mgr.Start();
+            if (!canFish) ImGui.EndDisabled();
+
+            if (!Mgr.NavmeshAvailable)      ImGui.TextColored(Red,   "vnavmesh not connected.");
+            else if (!Mgr.AutoHookAvailable) ImGui.TextColored(Red,   "AutoHook not loaded — it does the fishing.");
+            else if (!hasPreset)             ImGui.TextColored(Amber, "Set the AutoHook preset name first.");
+            return;
+        }
+
         var route = Mgr.SelectedRoute();
         bool canStart = route != null && route.IsReady(Cfg) && Mgr.NavmeshAvailable;
 
